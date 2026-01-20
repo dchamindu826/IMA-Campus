@@ -10,11 +10,14 @@ buildscript {
     repositories {
         google()
         mavenCentral()
+        maven { url 'https://repo.payhere.lk/repository/maven-releases/' }
     }
     dependencies {
         classpath("com.android.tools.build:gradle")
         classpath("com.facebook.react:react-native-gradle-plugin")
         classpath("org.jetbrains.kotlin:kotlin-gradle-plugin")
+        // 👇 Google Services Classpath එක එන්න ඕන මෙතනට
+        classpath("com.google.gms:google-services:4.4.1")
     }
 }
 
