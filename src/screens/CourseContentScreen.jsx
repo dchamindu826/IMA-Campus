@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { 
   View, Text, StyleSheet, TouchableOpacity, ScrollView, 
-  ActivityIndicator, Modal, Dimensions, Alert, Platform 
+  ActivityIndicator, Modal, Dimensions, Alert, Platform, Linking 
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context'; 
 import { useFocusEffect } from '@react-navigation/native'; 
@@ -225,10 +225,8 @@ const DownloadButton = ({ item, onDownloadComplete }) => {
                 {progress !== null ? (
                     <View style={styles.progressWrapper}>
                         <View style={[styles.progressFill, { width: progress }]} />
-                        {/* CHANGED: Show 'Downloading..' instead of % */}
                         <Text style={styles.progressTextSmall}>Downloading...</Text>
                         <View style={{position:'absolute', right: 8}}>
-                            {/* CHANGED: X icon for cancel */}
                             <Icon name="close" size={16} color="#333" />
                         </View>
                     </View>
@@ -252,7 +250,7 @@ const DownloadButton = ({ item, onDownloadComplete }) => {
 // --- List Components ---
 const SectionedContentList = ({ type, data, months, onPlay, onDownloadComplete }) => {
   if (!data || data.length === 0) return <View style={styles.emptyContainer}><Icon name="folder-open-outline" size={60} color="#ccc" /><Text style={styles.emptyText}>No {type} found.</Text></View>;
-  
+   
   const displayMonths = months && months.length > 0 ? months : ["All Content"];
 
   return (
@@ -273,7 +271,26 @@ const SectionedContentList = ({ type, data, months, onPlay, onDownloadComplete }
                   </View>
                   
                   <View style={styles.actionRow}>
-                    <TouchableOpacity onPress={() => onPlay(item)} style={styles.watchBtn}>
+                    <TouchableOpacity 
+                        onPress={() => {
+                            // --- CRASH FIX ---
+                            // If type is 'document', we FORCE open in external browser.
+                            // We do NOT call onPlay(item) here, to avoid triggering the WebView Modal.
+                            if (type === 'document') {
+                                if (item.link) {
+                                    Linking.openURL(item.link).catch(err => {
+                                        Alert.alert('Error', 'Could not open document. Please check your browser.');
+                                    });
+                                } else {
+                                    Alert.alert('Error', 'Document link is invalid.');
+                                }
+                            } else {
+                                // For Video/Recording, we proceed as usual (WebView/Player)
+                                onPlay(item);
+                            }
+                        }}
+                        style={styles.watchBtn}
+                    >
                       <Icon name={type === 'document' ? "file-eye-outline" : "play-circle-outline"} size={18} color="white" style={{marginRight: 8}} />
                       <Text style={styles.watchBtnText}>{type === 'document' ? 'View PDF' : 'Watch Online'}</Text>
                     </TouchableOpacity>
@@ -300,7 +317,7 @@ const CourseContentScreen = ({ route, navigation }) => {
   const [playingItem, setPlayingItem] = useState(null);
   const [alertVisible, setAlertVisible] = useState(false);
   const [alertConfig, setAlertConfig] = useState({ title: '', msg: '', type: 'success' });
-  
+   
   useFocusEffect(useCallback(() => {
     let isActive = true;
     const loadData = async () => {
@@ -317,6 +334,14 @@ const CourseContentScreen = ({ route, navigation }) => {
   const showDownloadSuccess = () => {
       setAlertConfig({ title: "Success", msg: "Download complete! Check Downloads tab.", type: "success" });
       setAlertVisible(true);
+  };
+
+  const handlePlayVideo = (item) => {
+      if (item && item.link) {
+          setPlayingItem(item);
+      } else {
+          Alert.alert("Error", "Video link is unavailable.");
+      }
   };
 
   if (loading) return <View style={styles.loader}><ActivityIndicator size="large" color={COLORS.primary} /></View>;
@@ -381,7 +406,6 @@ const CourseContentScreen = ({ route, navigation }) => {
             screenOptions={({ route }) => ({
                 tabBarActiveTintColor: COLORS.primary,
                 tabBarInactiveTintColor: '#999',
-                // Updated UI for Tabs (Icons + Cleaner Text)
                 tabBarLabelStyle: { fontWeight: 'bold', fontSize: 12, textTransform: 'capitalize', marginLeft: -5 },
                 tabBarIndicatorStyle: { backgroundColor: COLORS.primary, height: 3, borderRadius: 3 },
                 tabBarStyle: { elevation: 0, shadowOpacity: 0, borderBottomWidth: 1, borderBottomColor: '#eee', backgroundColor: 'white' },
@@ -397,19 +421,24 @@ const CourseContentScreen = ({ route, navigation }) => {
                 }
             })}
         >
-          <Tab.Screen name="Live" children={() => <SectionedContentList type="live" data={content.liveClasses} onPlay={setPlayingItem} />} />
-          <Tab.Screen name="Recordings" children={() => <SectionedContentList type="recording" data={content.recordings} onPlay={setPlayingItem} onDownloadComplete={showDownloadSuccess} months={content.recodingMonths} />} />
-          <Tab.Screen name="Documents" children={() => <SectionedContentList type="document" data={content.documents} onPlay={setPlayingItem} months={content.documentMonths} />} />
+          <Tab.Screen name="Live" children={() => <SectionedContentList type="live" data={content.liveClasses} onPlay={handlePlayVideo} />} />
+          <Tab.Screen name="Recordings" children={() => <SectionedContentList type="recording" data={content.recordings} onPlay={handlePlayVideo} onDownloadComplete={showDownloadSuccess} months={content.recodingMonths} />} />
+          
+          {/* Note: onPlay passed here is ignored by SectionedContentList for 'document' type, ensuring safety */}
+          <Tab.Screen name="Documents" children={() => <SectionedContentList type="document" data={content.documents} onPlay={handlePlayVideo} months={content.documentMonths} />} />
         </Tab.Navigator>
       )}
 
+      {/* WebView Modal - Handled safely */}
       <Modal visible={!!playingItem} animationType="slide" onRequestClose={() => setPlayingItem(null)}>
         <View style={{ flex: 1, backgroundColor: 'black' }}>
           <View style={styles.playerHeader}>
              <TouchableOpacity onPress={() => setPlayingItem(null)}><Icon name="close" size={30} color="white" /></TouchableOpacity>
              <Text style={{color: 'white', fontWeight: 'bold', flex: 1, marginLeft: 15}} numberOfLines={1}>{playingItem?.title}</Text>
           </View>
-          <WebView source={{ uri: playingItem?.link }} style={{ flex: 1 }} allowsFullscreenVideo={true} />
+          {playingItem?.link && (
+             <WebView source={{ uri: playingItem.link }} style={{ flex: 1 }} allowsFullscreenVideo={true} />
+          )}
         </View>
       </Modal>
     </SafeAreaView>

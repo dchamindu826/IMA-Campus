@@ -32,6 +32,8 @@ const DownloadsScreen = () => {
       const items = res ? JSON.parse(res) : [];
       let totalSize = 0;
       const validItems = [];
+      
+      // Filter out files that don't exist anymore
       for (let item of items) {
         if (await RNFS.exists(item.localPath)) {
           const stats = await RNFS.stat(item.localPath);
@@ -40,9 +42,17 @@ const DownloadsScreen = () => {
           validItems.push({ ...item, size: sizeMB.toFixed(1) });
         }
       }
-      setRecordings(validItems);
+      
+      // Update if any files were missing
+      if (validItems.length !== items.length) {
+          await AsyncStorage.setItem('my_downloads', JSON.stringify(validItems));
+      }
+
+      setRecordings(validItems.reverse()); // Show newest first
       setTotalStorageUsed(totalSize);
-    } catch (e) { } finally { setLoading(false); }
+    } catch (e) { 
+        console.log(e);
+    } finally { setLoading(false); }
   };
 
   const confirmDelete = (item) => {
@@ -54,12 +64,20 @@ const DownloadsScreen = () => {
   const handleDelete = async () => {
     if (!itemToDelete) return;
     try {
-      await RNFS.unlink(itemToDelete.localPath);
+      if (await RNFS.exists(itemToDelete.localPath)) {
+          await RNFS.unlink(itemToDelete.localPath);
+      }
       const res = await AsyncStorage.getItem('my_downloads');
       const items = res ? JSON.parse(res) : [];
       await AsyncStorage.setItem('my_downloads', JSON.stringify(items.filter(i => i.id !== itemToDelete.id)));
-      setAlertVisible(false); setItemToDelete(null); loadDownloads();
-    } catch (e) { setAlertConfig({ title: 'Error', msg: 'Deletion failed.', type: 'error' }); setAlertVisible(true); }
+      
+      setAlertVisible(false); 
+      setItemToDelete(null); 
+      loadDownloads();
+    } catch (e) { 
+        setAlertConfig({ title: 'Error', msg: 'Deletion failed.', type: 'error' }); 
+        setAlertVisible(true); 
+    }
   };
 
   return (
@@ -82,7 +100,11 @@ const DownloadsScreen = () => {
           )} />
       )}
       <Modal visible={!!selectedVideo} animationType="slide" onRequestClose={() => setSelectedVideo(null)}>
-        <View style={styles.playerWrapper}><Video source={{ uri: `file://${selectedVideo}` }} style={styles.fullScreenVideo} controls={true} resizeMode="contain" onEnd={() => setSelectedVideo(null)} /><TouchableOpacity style={styles.closePlayerBtn} onPress={() => setSelectedVideo(null)}><Icon name="close" size={30} color="white" /></TouchableOpacity></View>
+        <View style={styles.playerWrapper}>
+            {/* 🔥 Use file:// prefix for local files */}
+            <Video source={{ uri: `file://${selectedVideo}` }} style={styles.fullScreenVideo} controls={true} resizeMode="contain" onEnd={() => setSelectedVideo(null)} onError={(e) => console.log("Video Error:", e)} />
+            <TouchableOpacity style={styles.closePlayerBtn} onPress={() => setSelectedVideo(null)}><Icon name="close" size={30} color="white" /></TouchableOpacity>
+        </View>
       </Modal>
     </SafeAreaView>
   );

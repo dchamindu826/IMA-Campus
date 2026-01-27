@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   View, Text, StyleSheet, TouchableOpacity, ScrollView, 
-  ActivityIndicator, Image, Platform, Alert
+  ActivityIndicator, Image, Platform, Alert, TextInput 
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -11,30 +11,27 @@ import api from '../services/api';
 import CustomAlert from '../components/CustomAlert';
 import md5 from 'crypto-js/md5';
 
-// PayHere Import (Hariyatama me widihata thiyenna ona)
+// PayHere Import
 import PayHere from '@payhere/payhere-mobilesdk-reactnative';
 
 // ******* CONFIGURATION *******
 const MERCHANT_ID = "222646";
-// PayHere Secret eka (Production ekedi Backend eken ganna eka wada arakshithai, danata mehema thiyamu)
 const MERCHANT_SECRET = "3113931171298094467140764830232859317793"; 
 // *****************************
 
 const PaymentMethodScreen = ({ route, navigation }) => {
-  // Params hariyatama allaganna
   const { amount, mainPaymentId } = route.params || {};
   
   const [method, setMethod] = useState(null); 
   const [loading, setLoading] = useState(false);
   const [slipImage, setSlipImage] = useState(null);
+  const [remark, setRemark] = useState(''); // 🔥 Remark state ekata gatta
 
   const [alertVisible, setAlertVisible] = useState(false);
   const [alertConfig, setAlertConfig] = useState({ title: '', msg: '', type: 'success' });
 
   useEffect(() => {
-    // SDK Status Check
     console.log("PayHere Module Status:", PayHere ? "Loaded" : "Not Loaded");
-    // Amount eka enawada balanna
     console.log("Received Amount:", amount, "Payment ID:", mainPaymentId);
   }, [amount, mainPaymentId]);
 
@@ -48,34 +45,25 @@ const PaymentMethodScreen = ({ route, navigation }) => {
     setLoading(true);
     
     try {
-        // 1. Amount eka hariyatama Format karaganna (5000 -> "5000.00")
-        // PayHere ekata meka aniwaryai
         const formattedAmount = parseFloat(amount).toFixed(2);
         const currency = "LKR";
-        const orderId = mainPaymentId.toString(); // String ekak wenna ona
+        const orderId = mainPaymentId.toString();
 
-        // 2. Hash eka apima hadamu (Frontend Generation)
-        // Hethuwa: Backend eken ena Hash ekai ape Amount ekai match nowunoth wade awul.
-        // Formula: md5(merchant_id + order_id + amount + currency + md5(merchant_secret))
-        
         const hashedSecret = md5(MERCHANT_SECRET).toString().toUpperCase();
         const hashString = MERCHANT_ID + orderId + formattedAmount + currency + hashedSecret;
         const finalHash = md5(hashString).toString().toUpperCase();
 
-        console.log("Generated Hash:", finalHash);
-
-        // 3. Payment Object eka hadamu
         const paymentObject = {
-            sandbox: false,                 // Production Mode (Live)
+            sandbox: false,             // Production Mode
             merchant_id: MERCHANT_ID,       
-            notify_url: "https://ima.lk/api/onlinePaymentSuccessNotify", // Backend Notify URL
+            notify_url: "https://api.imacampus.lk/api/onlinePaymentSuccessNotify", // 🔥 Make sure this URL is correct!
             order_id: orderId,              
             items: "IMA Academy Course Fee",
             amount: formattedAmount,        
             currency: currency,             
             hash: finalHash,                
             
-            // Student Details (Dummy Data is okay for payments if not strictly required)
+            // Student Details (Can be dummy or real)
             first_name: "Student",
             last_name: "Member",
             email: "student@ima.lk",
@@ -83,18 +71,8 @@ const PaymentMethodScreen = ({ route, navigation }) => {
             address: "IMA Academy",
             city: "Colombo",
             country: "Sri Lanka",
-            
-            // Optional fields
-            delivery_address: "",
-            delivery_city: "",
-            delivery_country: "",
-            custom_1: "",
-            custom_2: ""
         };
 
-        console.log("Starting PayHere with:", paymentObject);
-
-        // 4. SDK eka Start karanna
         PayHere.startPayment(
             paymentObject,
             (paymentId) => {
@@ -102,7 +80,6 @@ const PaymentMethodScreen = ({ route, navigation }) => {
                 setLoading(false);
                 setAlertConfig({ title: "Success", msg: "Payment Completed Successfully!", type: "success" });
                 setAlertVisible(true);
-                // Success wunama Home ekata yawanna
                 setTimeout(() => navigation.reset({ index: 0, routes: [{ name: 'MainTabs' }] }), 2000);
             },
             (errorData) => {
@@ -125,7 +102,6 @@ const PaymentMethodScreen = ({ route, navigation }) => {
     }
   };
 
-  // --- Bank Slip Upload Logic ---
   const pickImage = async () => {
     try {
         const result = await launchImageLibrary({ mediaType: 'photo', quality: 0.7, selectionLimit: 1 });
@@ -143,13 +119,13 @@ const PaymentMethodScreen = ({ route, navigation }) => {
     const formData = new FormData();
     formData.append('mainPaymentId', mainPaymentId);
 
-    // --- NEW LOGIC: Installment ID eka thiyenawan append karanna ---
     if (route.params?.installmentPaymentId) {
         formData.append('installmentPaymentId', route.params.installmentPaymentId);
     }
-    // -------------------------------------------------------------
 
-    formData.append('remark', 'Bank Slip Uploaded via App');
+    // 🔥 Added Remark from Input
+    formData.append('remark', remark.trim() !== '' ? remark : 'Bank Slip Uploaded via App');
+    
     formData.append('slipImg', {
       uri: Platform.OS === 'android' ? slipImage.uri : slipImage.uri.replace('file://', ''),
       type: slipImage.type || 'image/jpeg',
@@ -157,7 +133,6 @@ const PaymentMethodScreen = ({ route, navigation }) => {
     });
 
     try {
-        // Backend eke uploadSlip endpoint ekata yawanawa
         await api.post('/uploadSlip', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
         setAlertConfig({ title: "Success", msg: "Slip uploaded! Waiting for approval.", type: "success" });
         setAlertVisible(true);
@@ -215,17 +190,24 @@ const PaymentMethodScreen = ({ route, navigation }) => {
         {/* Bank Slip Section */}
         {method === 'bank' && (
             <View style={styles.methodContainer}>
-                <View style={styles.bankDetailsBox}>
-                    <Text style={styles.bankHeader}>Bank Details</Text>
-                    <Text style={styles.bankRow}>Bank: Bank of Ceylon</Text>
-                    <Text style={styles.bankRow}>Acc No: 83525547</Text>
-                    <Text style={styles.bankRow}>Branch: Maharagama</Text>
-                    <Text style={styles.bankRow}>Name: IMA Campus</Text>
-                </View>
+                
+                {/* 🔥 Bank Details Removed as requested */}
+                
+                {/* 🔥 Remark Input Field Added */}
+                <Text style={styles.inputLabel}>Remark (Optional)</Text>
+                <TextInput 
+                    style={styles.input} 
+                    placeholder="Enter Student ID or Name" 
+                    placeholderTextColor="#999"
+                    value={remark}
+                    onChangeText={setRemark}
+                />
+
                 <TouchableOpacity style={styles.uploadBox} onPress={pickImage}>
                     {slipImage ? <Image source={{ uri: slipImage.uri }} style={styles.uploadedImage} resizeMode="cover" /> : <Icon name="cloud-upload" size={40} color="#aaa" />}
-                    {!slipImage && <Text style={{ color: '#aaa', marginTop: 10 }}>Select Slip Image</Text>}
+                    {!slipImage && <Text style={{ color: '#aaa', marginTop: 10 }}>Tap to Select Slip Image</Text>}
                 </TouchableOpacity>
+
                 <TouchableOpacity style={styles.submitBtn} onPress={handleSlipUpload} disabled={loading}>
                     {loading ? <ActivityIndicator color="white" /> : <Text style={styles.btnText}>Upload Slip</Text>}
                 </TouchableOpacity>
@@ -249,9 +231,11 @@ const styles = StyleSheet.create({
   cardTitle: { marginTop: 10, fontWeight: 'bold', fontSize: 14, color: '#333' },
   methodContainer: { marginTop: 20 },
   infoText: { color: '#666', textAlign: 'center', marginBottom: 15 },
-  bankDetailsBox: { backgroundColor: '#FFF3E0', padding: 15, borderRadius: 10, marginBottom: 20, borderWidth: 1, borderColor: '#FFE0B2' },
-  bankHeader: { fontWeight: 'bold', fontSize: 14, marginBottom: 10, color: '#E65100' },
-  bankRow: { marginBottom: 5, color: '#333' },
+  
+  // 🔥 New Styles for Input
+  inputLabel: { fontSize: 14, color: '#555', marginBottom: 8, fontWeight: 'bold' },
+  input: { backgroundColor: 'white', borderWidth: 1, borderColor: '#DDD', borderRadius: 10, padding: 12, marginBottom: 20, color: '#333' },
+
   uploadBox: { height: 180, backgroundColor: '#FAFAFA', borderRadius: 15, justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: '#DDD', borderStyle: 'dashed', marginBottom: 20 },
   uploadedImage: { width: '100%', height: '100%', borderRadius: 13 },
   submitBtn: { backgroundColor: COLORS.primary, padding: 16, borderRadius: 12, alignItems: 'center', elevation: 3 },

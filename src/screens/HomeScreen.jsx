@@ -1,26 +1,30 @@
-import React, { useState, useEffect, useContext, useRef } from 'react';
+import React, { useState, useEffect, useContext, useRef, useCallback } from 'react';
 import { 
   View, Text, StyleSheet, ScrollView, TouchableOpacity, StatusBar, 
-  Image, ActivityIndicator, Modal, FlatList, Dimensions, RefreshControl 
+  Image, ActivityIndicator, Modal, FlatList, Dimensions, RefreshControl,
+  AppState // 🔥 Import AppState
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import LinearGradient from 'react-native-linear-gradient';
 import COLORS from '../constants/colors';
-import api from '../services/api'; 
-import { AuthContext } from '../context/AuthContext';
+import { useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+
+import api, { IMAGE_URL } from '../services/api'; 
+import { AuthContext } from '../context/AuthContext';
 import moment from 'moment'; 
 
 const { width } = Dimensions.get('window');
 
-// 🔥 BASE URL
-const ASSET_BASE_URL = 'https://test.imacampus.lk/';
+const CARD_MARGIN = 15;
+const CARD_WIDTH = width - 40;
+const SNAP_INTERVAL = CARD_WIDTH + CARD_MARGIN;
 
 const HomeScreen = ({ navigation }) => {
   const { userInfo, userToken } = useContext(AuthContext);
   const [greeting, setGreeting] = useState('');
-  const [courses, setCourses] = useState([]);
   const [posts, setPosts] = useState([]); 
+  const [recents, setRecents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   
@@ -28,6 +32,36 @@ const HomeScreen = ({ navigation }) => {
   const [currentSlide, setCurrentSlide] = useState(0);
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedPost, setSelectedPost] = useState(null); 
+
+  // 🔥 AppState Logic (Background/Foreground Detection)
+  const appState = useRef(AppState.currentState);
+  const [appStateVisible, setAppStateVisible] = useState(appState.current);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', nextAppState => {
+      if (
+        appState.current.match(/inactive|background/) &&
+        nextAppState === 'active'
+      ) {
+        console.log('App has come to the foreground!');
+        // Methana App eka Active una gaman refresh karanna ona dewal danna puluwan
+        loadData(); // Optional: Refresh data when coming back
+      }
+
+      if (nextAppState.match(/inactive|background/)) {
+         console.log('App went to background!');
+         // 🔥 Methana Websockets close karanna puluwan ona nam
+      }
+
+      appState.current = nextAppState;
+      setAppStateVisible(appState.current);
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, []);
+  // 🔥 End of AppState Logic
 
   useEffect(() => {
     const hour = new Date().getHours();
@@ -38,13 +72,35 @@ const HomeScreen = ({ navigation }) => {
     loadData();
   }, [userToken]);
 
+  useFocusEffect(
+    useCallback(() => {
+      loadRecents();
+    }, [])
+  );
+
+  const loadRecents = async () => {
+      try {
+          const historyStr = await AsyncStorage.getItem('recent_activity');
+          if (historyStr) {
+              setRecents(JSON.parse(historyStr));
+          }
+      } catch (e) {
+          console.log("Error loading recents", e);
+      }
+  };
+
+  // Auto Scroll Logic
   useEffect(() => {
     if (posts.length > 1) {
       const interval = setInterval(() => {
         let nextSlide = currentSlide + 1;
         if (nextSlide >= posts.length) nextSlide = 0;
+        
         if (flatListRef.current) {
-          flatListRef.current.scrollToIndex({ index: nextSlide, animated: true });
+          flatListRef.current.scrollToOffset({ 
+            offset: nextSlide * SNAP_INTERVAL, 
+            animated: true 
+          });
           setCurrentSlide(nextSlide);
         }
       }, 4000); 
@@ -66,9 +122,6 @@ const HomeScreen = ({ navigation }) => {
       const data = response.data;
       
       if (data) {
-         if (data.registeredBusinesses) setCourses(data.registeredBusinesses);
-         else if (data.businesses) setCourses(data.businesses);
-
          if (data.posts && Array.isArray(data.posts)) {
             setPosts(data.posts);
          }
@@ -85,6 +138,7 @@ const HomeScreen = ({ navigation }) => {
   const onRefresh = () => {
     setRefreshing(true);
     loadData();
+    loadRecents();
   };
 
   const quickActions = [
@@ -101,49 +155,46 @@ const HomeScreen = ({ navigation }) => {
         if (item.image.startsWith('http')) {
             imgUri = item.image;
         } else {
-            imgUri = `${ASSET_BASE_URL}storage/posts/${item.image}`;
+            imgUri = `${IMAGE_URL}posts/${item.image}`;
         }
     }
 
     const description = item.caption || item.description || item.body || "";
 
     return (
-      <View style={{ width: width, alignItems: 'center' }}> 
-        <TouchableOpacity 
-            key={item.id ? item.id.toString() : Math.random().toString()}
-            style={styles.carouselCard} 
-            activeOpacity={0.9}
-            onPress={() => {
-                setSelectedPost(item);
-                setModalVisible(true); 
-            }}
-        >
-            {imgUri ? (
-                <Image 
-                    source={{ uri: imgUri }} 
-                    style={styles.carouselImage} 
-                    resizeMode="cover"
-                />
-            ) : (
-                <View style={styles.carouselIcon}>
-                    <Icon name="bullhorn-variant-outline" size={24} color="#FFF" />
-                </View>
-            )}
-            
-            <View style={styles.carouselTextContainer}>
-            <Text style={styles.carouselTitle} numberOfLines={1}>{item.title || "Notice"}</Text>
-            <Text style={styles.carouselBody} numberOfLines={2}>{description}</Text>
-            <Text style={styles.carouselTime}>{item.created_at ? moment(item.created_at).fromNow() : ''}</Text>
-            </View>
-            <Icon name="chevron-right" size={24} color="#CCC" />
-        </TouchableOpacity>
-      </View>
+      <TouchableOpacity 
+        key={item.id ? item.id.toString() : Math.random().toString()}
+        style={styles.carouselCard} 
+        activeOpacity={0.9}
+        onPress={() => {
+            setSelectedPost(item);
+            setModalVisible(true); 
+        }}
+      >
+        {imgUri ? (
+             <Image 
+                source={{ uri: imgUri }} 
+                style={styles.carouselImage} 
+                resizeMode="cover"
+             />
+        ) : (
+             <View style={styles.carouselIcon}>
+                <Icon name="bullhorn-variant-outline" size={24} color="#FFF" />
+             </View>
+        )}
+        
+        <View style={styles.carouselTextContainer}>
+          <Text style={styles.carouselTitle} numberOfLines={1}>{item.title || "Notice"}</Text>
+          <Text style={styles.carouselBody} numberOfLines={2}>{description}</Text>
+          <Text style={styles.carouselTime}>{item.created_at ? moment(item.created_at).fromNow() : ''}</Text>
+        </View>
+        <Icon name="chevron-right" size={24} color="#CCC" />
+      </TouchableOpacity>
     );
   };
 
-  // --- PROFILE IMAGE ---
   const profileImageUri = userInfo?.image && userInfo.image !== 'default.png' 
-      ? `${ASSET_BASE_URL}storage/userImages/${userInfo.image}`
+      ? `${IMAGE_URL}userImages/${userInfo.image}`
       : null;
 
   return (
@@ -211,8 +262,21 @@ const HomeScreen = ({ navigation }) => {
           ))}
         </View>
 
-        {/* POSTS CAROUSEL */}
-        {posts.length > 0 ? (
+        {/* --- CAROUSEL (NOTICES) --- */}
+        {loading ? (
+          // 🔥 1. LOADING STATE: Show a Skeleton Card (Placeholders)
+          <View style={styles.carouselCard}>
+              <View style={[styles.carouselImage, { backgroundColor: '#E0E0E0' }]} />
+              <View style={styles.carouselTextContainer}>
+                  {/* Fake Title Line */}
+                  <View style={{ width: '50%', height: 16, backgroundColor: '#E0E0E0', borderRadius: 4, marginBottom: 8 }} />
+                  {/* Fake Body Lines */}
+                  <View style={{ width: '90%', height: 12, backgroundColor: '#E0E0E0', borderRadius: 4, marginBottom: 5 }} />
+                  <View style={{ width: '70%', height: 12, backgroundColor: '#E0E0E0', borderRadius: 4 }} />
+              </View>
+          </View>
+        ) : posts.length > 0 ? (
+          // 🔥 2. DATA LOADED STATE: Show the actual Posts
           <View>
               <FlatList
                 ref={flatListRef}
@@ -220,14 +284,16 @@ const HomeScreen = ({ navigation }) => {
                 renderItem={renderCarouselItem}
                 keyExtractor={(item, index) => item.id ? item.id.toString() : index.toString()}
                 horizontal
-                pagingEnabled
                 showsHorizontalScrollIndicator={false}
-                snapToInterval={width} // Snap to full width
+                snapToInterval={SNAP_INTERVAL}
                 decelerationRate="fast"
-                // 🔥 FIX: Shadow Clipping - Added padding to container so shadow is visible
-                contentContainerStyle={{ paddingBottom: 20 }} 
+                pagingEnabled={false}
+                contentContainerStyle={{ 
+                    paddingVertical: 15, 
+                    paddingHorizontal: 20 
+                }}
                 onMomentumScrollEnd={(event) => {
-                    const index = Math.round(event.nativeEvent.contentOffset.x / width);
+                    const index = Math.round(event.nativeEvent.contentOffset.x / SNAP_INTERVAL);
                     setCurrentSlide(index);
                 }}
               />
@@ -238,6 +304,7 @@ const HomeScreen = ({ navigation }) => {
               </View>
           </View>
         ) : (
+            // 🔥 3. EMPTY STATE: Show "No New Notices" only if loading is done and list is empty
             <View style={styles.carouselCard}>
                 <View style={[styles.carouselIcon, {backgroundColor:'#ccc'}]}>
                     <Icon name="information-variant" size={24} color="#FFF" />
@@ -249,49 +316,41 @@ const HomeScreen = ({ navigation }) => {
             </View>
         )}
 
-        <View style={styles.rowBetween}>
-          <Text style={styles.sectionTitle}>Featured Programs</Text>
-          <TouchableOpacity onPress={() => navigation.navigate('MainTabs', {screen: 'Courses'})}>
-            <Text style={styles.seeAll}>See All</Text>
-          </TouchableOpacity>
-        </View>
-        
-        {loading ? (
-            <ActivityIndicator color={COLORS.primary} style={{marginTop: 20}} />
-        ) : (
-            <ScrollView 
-              horizontal 
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.featuredList}
-            >
-            {courses.map((item, index) => {
-                // 🔥 FIX: Course Image Path - Changed back to 'icons/' (Removed storage/)
-                let iconUri = null;
-                if(item.logo) {
-                    iconUri = `${ASSET_BASE_URL}icons/${item.logo}`; 
-                }
-
-                return (
+        {/* 🔥 RECENT ACTIVITY SECTION (Continue Learning) */}
+        {recents.length > 0 && (
+          <View>
+            <Text style={styles.sectionTitle}>Continue Learning</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{paddingLeft: 20, paddingRight: 20, paddingBottom: 20}}>
+                {recents.map((item, index) => (
                     <TouchableOpacity 
-                        key={item.id ? item.id.toString() : index.toString()} 
-                        style={styles.courseCard} 
-                        onPress={() => navigation.navigate('CourseDetails', { businessData: item })}
+                        key={index} 
+                        style={styles.recentCard}
+                        onPress={() => {
+                            // Navigate directly to player
+                            navigation.navigate('CourseContent', { 
+                                courseId: item.courseId, 
+                                courseTitle: item.courseTitle,
+                                autoPlayItem: item // Pass the item to auto play
+                            });
+                        }}
                     >
-                        <Image 
-                            source={iconUri ? { uri: iconUri } : null}
-                            defaultSource={require('../assets/logo_white.png')}
-                            style={styles.courseImage} 
-                            resizeMode="contain" 
-                        />
-                        <Text style={styles.courseCardTitle} numberOfLines={1}>{item.name}</Text>
+                        <View style={styles.recentIconBox}>
+                            <Icon name="play-circle" size={30} color="white" />
+                        </View>
+                        <View style={{flex: 1, marginRight: 10}}>
+                            <Text style={styles.recentTitle} numberOfLines={2}>{item.title}</Text>
+                            <Text style={styles.recentSub} numberOfLines={1}>{item.courseTitle}</Text>
+                        </View>
+                        <Icon name="chevron-right" size={24} color="#ccc" />
                     </TouchableOpacity>
-                );
-            })}
+                ))}
             </ScrollView>
+          </View>
         )}
+
       </ScrollView>
 
-      {/* NOTIFICATION MODAL */}
+      {/* MODAL CODE (NOTIFICATIONS) */}
       <Modal
         animationType="slide"
         transparent={true}
@@ -313,20 +372,20 @@ const HomeScreen = ({ navigation }) => {
 
             {selectedPost ? (
                 <ScrollView contentContainerStyle={{paddingBottom: 20}}>
-                     {selectedPost.image && (
-                         <Image 
-                            source={{ uri: `${ASSET_BASE_URL}storage/posts/${selectedPost.image}` }} 
+                      {selectedPost.image && (
+                          <Image 
+                            source={{ uri: `${IMAGE_URL}posts/${selectedPost.image}` }} 
                             style={styles.detailImage} 
                             resizeMode="cover" 
-                         />
-                     )}
-                     <Text style={styles.detailTitle}>{selectedPost.title || "Notice"}</Text>
-                     <Text style={styles.detailTime}>{selectedPost.created_at ? moment(selectedPost.created_at).format('MMMM Do YYYY, h:mm a') : ''}</Text>
-                     <Text style={styles.detailBody}>{selectedPost.caption || selectedPost.description || selectedPost.body}</Text>
-                     
-                     <TouchableOpacity style={styles.backBtn} onPress={() => setSelectedPost(null)}>
+                          />
+                      )}
+                      <Text style={styles.detailTitle}>{selectedPost.title || "Notice"}</Text>
+                      <Text style={styles.detailTime}>{selectedPost.created_at ? moment(selectedPost.created_at).format('MMMM Do YYYY, h:mm a') : ''}</Text>
+                      <Text style={styles.detailBody}>{selectedPost.caption || selectedPost.description || selectedPost.body}</Text>
+                      
+                      <TouchableOpacity style={styles.backBtn} onPress={() => setSelectedPost(null)}>
                         <Text style={{color:'white', fontWeight:'bold'}}>Back to List</Text>
-                     </TouchableOpacity>
+                      </TouchableOpacity>
                 </ScrollView>
             ) : (
                 <FlatList
@@ -341,7 +400,7 @@ const HomeScreen = ({ navigation }) => {
                         >
                         {item.image ? (
                             <Image 
-                                source={{ uri: `${ASSET_BASE_URL}storage/posts/${item.image}` }} 
+                                source={{ uri: `${IMAGE_URL}posts/${item.image}` }} 
                                 style={styles.notifImage} 
                                 resizeMode="cover" 
                             />
@@ -393,25 +452,25 @@ const styles = StyleSheet.create({
   welcomeContainer: { marginTop: 10 },
   greetingText: { color: '#E0E0E0', fontSize: 14, fontWeight: '500' },
   usernameText: { color: 'white', fontSize: 24, fontWeight: 'bold', letterSpacing: 0.5 },
-  contentContainer: { flex: 1, paddingHorizontal: 20, marginTop: 25 },
+  contentContainer: { flex: 1, paddingHorizontal: 0, marginTop: 25 }, 
   
-  sectionTitle: { fontSize: 19, fontWeight: '800', color: '#1A1A1A', marginBottom: 15 },
-  gridContainer: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 25 },
+  sectionTitle: { fontSize: 19, fontWeight: '800', color: '#1A1A1A', marginBottom: 15, paddingHorizontal: 20 },
+  gridContainer: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 25, paddingHorizontal: 20 },
   actionCard: { width: '23%', backgroundColor: 'white', borderRadius: 15, paddingVertical: 12, alignItems: 'center', elevation: 4 },
   iconBox: { width: 45, height: 45, borderRadius: 12, justifyContent: 'center', alignItems: 'center', marginBottom: 8 },
   actionText: { fontSize: 11, fontWeight: '700', color: '#444' },
 
-  // 🔥 FIX: Card Styles to prevent shadow clipping
   carouselCard: { 
-    width: width - 40, // 20px padding on each side from container
+    width: CARD_WIDTH,
+    marginRight: CARD_MARGIN,
     backgroundColor: 'white', 
     borderRadius: 20, 
     padding: 15, 
     flexDirection: 'row', 
     alignItems: 'center', 
-    // marginVertical: 5 removed, moved to padding in list
-    elevation: 5, // Increased elevation
-    shadowColor: '#000', // iOS Shadow
+    marginBottom: 0, 
+    elevation: 4, 
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
@@ -422,30 +481,32 @@ const styles = StyleSheet.create({
   carouselTitle: { fontWeight: 'bold', color: '#333', fontSize: 16, marginBottom: 4 },
   carouselBody: { color: '#666', fontSize: 13, marginBottom: 4 },
   carouselTime: { color: COLORS.primary, fontSize: 11, fontWeight: '600' },
-  
-  dotContainer: { flexDirection: 'row', justifyContent: 'center', marginBottom: 25, marginTop: 10 }, // Added margin top
+  dotContainer: { flexDirection: 'row', justifyContent: 'center', marginBottom: 25, marginTop: 10 },
   dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#DDD', marginHorizontal: 4 },
   activeDot: { backgroundColor: COLORS.primary, width: 20 },
 
-  rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 },
-  seeAll: { color: COLORS.primary, fontWeight: '700', fontSize: 14 },
-  featuredList: { paddingLeft: 2, paddingRight: 20, paddingVertical: 10 },
-  
-  courseCard: { 
-    width: 150, 
-    marginRight: 15, 
-    borderRadius: 20, 
-    backgroundColor: 'white', 
-    padding: 12, 
-    elevation: 5, 
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
+  // 🔥 Recent Activity Styles
+  recentCard: { 
+      flexDirection: 'row', 
+      alignItems: 'center', 
+      backgroundColor: 'white', 
+      padding: 15, 
+      borderRadius: 15, 
+      marginRight: 15, 
+      width: width - 80, // Slightly smaller than full width to show scroll capability
+      elevation: 3
   },
-  courseImage: { width: 120, height: 80, borderRadius: 10 }, 
-  courseCardTitle: { fontSize: 12, fontWeight: 'bold', color: '#333', marginTop: 10, textAlign: 'center' },
+  recentIconBox: { 
+      width: 50, 
+      height: 50, 
+      borderRadius: 25, 
+      backgroundColor: COLORS.primary, 
+      justifyContent: 'center', 
+      alignItems: 'center', 
+      marginRight: 15 
+  },
+  recentTitle: { fontWeight: 'bold', fontSize: 15, color: '#333', marginBottom: 2 },
+  recentSub: { color: '#888', fontSize: 12 },
 
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
   modalContent: { backgroundColor: '#F0F0F0', borderTopLeftRadius: 25, borderTopRightRadius: 25, padding: 20, height: '85%' },
