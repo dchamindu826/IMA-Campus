@@ -1,282 +1,295 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { 
   View, Text, StyleSheet, FlatList, TouchableOpacity, 
-  ActivityIndicator, RefreshControl, Platform 
+  ActivityIndicator, RefreshControl, Image, Alert 
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context'; 
 import { useFocusEffect } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
-import notifee, { AndroidImportance } from '@notifee/react-native'; // Notification walata
+import notifee, { AndroidImportance, TriggerType } from '@notifee/react-native';
 import COLORS from '../constants/colors';
-import api from '../services/api';
+import api, { IMAGE_URL } from '../services/api';
+import moment from 'moment';
 
 const PaymentsScreen = ({ navigation }) => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [activeTab, setActiveTab] = useState('history'); 
-  const [paymentData, setPaymentData] = useState({ history: [], upcoming: [] });
+  const [activeTab, setActiveTab] = useState('upcoming'); // Default Upcoming පෙන්නමු
+  
+  const [historyList, setHistoryList] = useState([]);
+  const [upcomingList, setUpcomingList] = useState([]);
 
   useFocusEffect(
     useCallback(() => {
-      fetchData();
+      fetchPaymentData();
     }, [])
   );
 
-  const fetchData = async () => {
+  const fetchPaymentData = async () => {
     try {
-      const res = await api.get('/start'); 
-      const allPayments = res.data.payments_details || [];
-
-      // --- 1. HISTORY FILTER (PayHere + Bank Transfer) ---
-      // Status 1: Approved/Paid (Online or Bank Slip Approved)
-      // Status -1: Pending (Bank Slip Uploaded, waiting for approval)
-      const history = allPayments.filter(p => p.status === 1 || p.status === -1);
+      const res = await api.get('/myPayments');
       
-      // Sort History (Newest first)
-      history.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-
-      // --- 2. UPCOMING FILTER ---
-      // Status 0: Due
-      // Status -2: Not Paid / Overdue
-      const upcoming = allPayments.filter(p => p.status === 0 || p.status === -2);
+      // Backend එකෙන් එන නම් (Arrays)
+      // 1. oldPayments -> History
+      // 2. comingPayments -> Upcoming (Due)
       
-      // Sort Upcoming (Oldest due date first - urgent ewa udata)
-      upcoming.sort((a, b) => new Date(a.payment_month) - new Date(b.payment_month));
+      const old = res.data.oldPayments || [];
+      const coming = res.data.comingPayments || [];
 
-      setPaymentData({ history, upcoming });
+      // Sort: අලුත් ඒවා උඩට
+      const sortedHistory = old.sort((a, b) => new Date(b.createdDate) - new Date(a.createdDate));
       
-      // --- 3. CHECK FOR REMINDERS (Auto Notification) ---
-      checkReminders(upcoming);
+      // Sort: පරණම Due Date එක උඩට (Urgent ඒවා)
+      const sortedUpcoming = coming.sort((a, b) => new Date(a.payment_month) - new Date(b.payment_month));
+
+      setHistoryList(sortedHistory);
+      setUpcomingList(sortedUpcoming);
+
+      // Notification Check එක රන් කරන්න
+      checkAndScheduleNotifications(sortedUpcoming);
 
     } catch (e) {
-      console.log("Fetch Error:", e);
+      console.log("Payment Fetch Error:", e);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   };
 
-  // --- AUTO REMINDER LOGIC ---
-  const checkReminders = async (upcomingList) => {
-    const today = new Date();
-    
-    // Channel ekak hadamu issella (Sure ekatama notification wadinna)
+  // 🔥 Notification Logic (දවස් 3ක් ඇතුලත නම් Remind කරන්න)
+  const checkAndScheduleNotifications = async (duePayments) => {
+    await notifee.requestPermission();
+
+    // Channel එක හදමු
     await notifee.createChannel({
         id: 'payment_reminders',
-        name: 'Payment Reminders',
+        name: 'Payment Due Reminders',
         importance: AndroidImportance.HIGH,
+        sound: 'default',
     });
 
-    for (const p of upcomingList) {
-        if(p.payment_month) {
-            const dueDate = new Date(p.payment_month);
-            const diffTime = dueDate - today;
-            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
-            
-            // Dawas 3ta adu nam saha dawas 0 ta wadi nam (Past ewa nemei)
-            if(diffDays <= 3 && diffDays >= 0) {
-                
-                await notifee.displayNotification({
-                    title: '⚠️ Payment Due Soon!',
-                    body: `Your payment for ${p.course_id || 'Course'} is due in ${diffDays === 0 ? 'today' : diffDays + ' days'}.`,
-                    android: {
-                        channelId: 'payment_reminders',
-                        smallIcon: 'ic_launcher', // Icon eka hariyata thiyenna ona
-                        color: '#FF5252',
-                        pressAction: { id: 'default' },
-                    },
-                });
-            }
+    const today = moment();
+
+    for (const payment of duePayments) {
+        if (!payment.payment_month) continue;
+
+        const dueDate = moment(payment.payment_month);
+        const daysDiff = dueDate.diff(today, 'days');
+
+        // දවස් 0 ත් 3 ත් අතර නම් Notification එකක් යවමු
+        if (daysDiff >= 0 && daysDiff <= 3) {
+            await notifee.displayNotification({
+                title: '📅 Payment Reminder',
+                body: `Your payment for ${payment.courseName} is due ${daysDiff === 0 ? 'today' : 'in ' + daysDiff + ' days'}.`,
+                android: {
+                    channelId: 'payment_reminders',
+                    smallIcon: 'ic_launcher', // ඔයාගේ ඇප් එකේ icon එකේ නම මෙතනට දාන්න check කරලා
+                    color: COLORS.primary,
+                    pressAction: { id: 'default' },
+                },
+            });
+            // එක පාරක් යැව්වම ඇති (Loop එක නවත්තනවා spam නොවෙන්න)
+            break; 
         }
     }
   };
 
-  const renderItem = ({ item }) => {
-    // Date Format Logic
-    const rawDate = item.payment_month ? item.payment_month : item.created_at;
-    const formattedDate = new Date(rawDate).toDateString();
+  const renderPaymentCard = ({ item }) => {
+    const isHistory = activeTab === 'history';
     
-    // Monthly Payment Label
-    const monthLabel = item.payment_month 
-        ? new Date(item.payment_month).toLocaleString('default', { month: 'long', year: 'numeric' }) 
-        : 'One-Time Payment';
-    
-    // Urgent Logic for Upcoming
-    let isUrgent = false;
-    let daysLeft = 0;
-    
-    if (activeTab === 'upcoming' && item.payment_month) {
-        const dueDate = new Date(item.payment_month);
-        const today = new Date();
-        daysLeft = Math.ceil((dueDate - today) / (1000 * 60 * 60 * 24));
-        if (daysLeft <= 3) isUrgent = true;
-    }
+    // Status Logic
+    let statusText = "Pending";
+    let statusColor = "#FF9800"; // Orange
+    let statusBg = "#FFF3E0";
 
-    // Installment Logic
-    let installmentIdToPass = null;
-    if (item.isInstallment === 1 && item.installments?.length > 0) {
-        const pendingInstallment = item.installments.find(inst => inst.status === 0);
-        if (pendingInstallment) {
-            installmentIdToPass = pendingInstallment.id;
+    if (isHistory) {
+        if (item.status === 1) {
+            statusText = "Paid";
+            statusColor = "#4CAF50"; // Green
+            statusBg = "#E8F5E9";
+        } else if (item.status === -1) {
+            statusText = "Pending Approval";
+        } else if (item.status === -2) {
+            statusText = "Rejected";
+            statusColor = "#F44336";
+            statusBg = "#FFEBEE";
+        }
+    } else {
+        // Upcoming
+        statusText = "Due";
+        statusColor = "#2196F3"; // Blue
+        statusBg = "#E3F2FD";
+        
+        // Urgent Check
+        const today = moment();
+        const due = moment(item.payment_month);
+        if (due.diff(today, 'days') < 0) {
+            statusText = "Overdue";
+            statusColor = "#F44336";
+            statusBg = "#FFEBEE";
         }
     }
 
     return (
-      <View style={[styles.card, isUrgent && styles.urgentCard]}>
-        
-        {/* Header Row */}
-        <View style={styles.rowBetween}>
-          <View style={[styles.badge, { backgroundColor: getStatusColor(item.status).bg }]}>
-            <Text style={[styles.badgeText, { color: getStatusColor(item.status).text }]}>
-              {getStatusText(item.status)}
-            </Text>
-          </View>
-          
-          {/* Display Paid Date for History, Due Date for Upcoming */}
-          <Text style={styles.dateText}>
-              {activeTab === 'history' ? `Paid: ${item.created_at?.split('T')[0]}` : `Due: ${item.payment_month?.split('T')[0]}`}
-          </Text>
+      <View style={styles.card}>
+        <View style={styles.cardHeader}>
+            <View style={{flexDirection:'row', alignItems:'center'}}>
+                {item.batchLogo ? (
+                    <Image source={{ uri: `${IMAGE_URL}icons/${item.batchLogo}` }} style={styles.logo} />
+                ) : (
+                    <View style={styles.iconPlaceholder}><Icon name="school" size={20} color="white"/></View>
+                )}
+                <View style={{marginLeft: 10, flex:1}}>
+                    <Text style={styles.courseName} numberOfLines={1}>{item.courseName}</Text>
+                    <Text style={styles.batchName}>{item.batchName}</Text>
+                </View>
+            </View>
+            <View style={[styles.statusBadge, { backgroundColor: statusBg }]}>
+                <Text style={[styles.statusText, { color: statusColor }]}>{statusText}</Text>
+            </View>
         </View>
 
-        {/* Course Info */}
-        <Text style={styles.courseTitle}>{item.course_name || `Course ID: ${item.course_id}`}</Text>
-        <Text style={styles.subTitle}>{monthLabel}</Text>
-        
-        {/* Amount & Status */}
-        <View style={styles.rowBetween}>
-            <Text style={styles.amountText}>Rs. {parseFloat(item.amount || item.subjectAmount || 0).toLocaleString()}</Text>
+        <View style={styles.divider} />
+
+        <View style={styles.cardBody}>
+            <View style={styles.row}>
+                <Text style={styles.label}>Amount</Text>
+                <Text style={styles.value}>LKR {parseFloat(item.amount).toLocaleString()}</Text>
+            </View>
+            <View style={[styles.row, {marginTop: 5}]}>
+                <Text style={styles.label}>{isHistory ? "Paid Date" : "Due Date"}</Text>
+                <Text style={styles.value}>
+                    {isHistory 
+                        ? moment(item.createdDate).format('MMM DD, YYYY') 
+                        : moment(item.payment_month).format('MMM DD, YYYY')}
+                </Text>
+            </View>
             
-            {/* Payment Method Icon for History */}
-            {activeTab === 'history' && (
-                <View style={{flexDirection:'row', alignItems:'center'}}>
-                    <Icon name={item.slip ? "file-image" : "credit-card-check"} size={16} color="#666" />
-                    <Text style={{fontSize:12, color:'#666', marginLeft:4}}>
-                        {item.slip ? "Bank Slip" : "Online"}
-                    </Text>
-                </View>
-            )}
-
-            {/* Due Alert for Upcoming */}
-            {activeTab === 'upcoming' && isUrgent && (
-                <View style={styles.urgentBadge}>
-                    <Icon name="clock-alert-outline" size={14} color="#C62828" />
-                    <Text style={styles.urgentText}> 
-                        {daysLeft <= 0 ? "Overdue" : `${daysLeft} days left`}
-                    </Text>
+            {/* History Only: Payment Method */}
+            {isHistory && (
+                <View style={[styles.row, {marginTop: 5}]}>
+                    <Text style={styles.label}>Method</Text>
+                    <View style={{flexDirection:'row', alignItems:'center'}}>
+                        <Icon name={item.pType === 'slip' ? 'file-upload' : 'credit-card'} size={14} color="#666" />
+                        <Text style={[styles.value, {marginLeft: 5}]}>
+                            {item.pType === 'slip' ? 'Bank Slip' : 'Online Payment'}
+                        </Text>
+                    </View>
                 </View>
             )}
         </View>
 
-        {/* Pay Now Button (Only for Upcoming) */}
-        {activeTab === 'upcoming' && (
-          <TouchableOpacity 
-            style={[styles.payNowBtn, isUrgent ? { backgroundColor: '#D32F2F' } : { backgroundColor: COLORS.primary }]}
-            onPress={() => navigation.navigate('PaymentMethod', { 
-              amount: item.amount || item.subjectAmount, 
-              mainPaymentId: item.id,
-              installmentPaymentId: installmentIdToPass 
-            })}
-          >
-            <Text style={styles.payNowText}>Pay Now</Text>
-            <Icon name="arrow-right" size={16} color="white" style={{marginLeft: 5}}/>
-          </TouchableOpacity>
+        {/* Action Button for Upcoming */}
+        {!isHistory && (
+            <TouchableOpacity 
+                style={styles.payBtn}
+                onPress={() => navigation.navigate('PaymentMethod', {
+                    amount: item.amount,
+                    mainPaymentId: item.paymentId, // API එකෙන් එන ID එක
+                    // Installment නම් මේක installment payment එකක් කියල අඳුරගන්න ඕන වෙයි payment method එකේදී
+                    isInstallment: item.isInstallment 
+                })}
+            >
+                <Text style={styles.payBtnText}>Pay Now</Text>
+                <Icon name="arrow-right" color="white" size={16} />
+            </TouchableOpacity>
         )}
       </View>
     );
   };
 
-  const getStatusColor = (status) => {
-      switch(status) {
-          case 1: return { bg: '#E8F5E9', text: '#2E7D32' }; // Paid
-          case -1: return { bg: '#FFF3E0', text: '#EF6C00' }; // Pending Approval
-          case -2: return { bg: '#FFEBEE', text: '#C62828' }; // Overdue
-          case 0: return { bg: '#E3F2FD', text: '#1565C0' }; // Due
-          default: return { bg: '#F5F5F5', text: '#9E9E9E' };
-      }
-  };
-
-  const getStatusText = (status) => {
-      if (status === 1) return 'PAID';
-      if (status === -1) return 'PENDING APPROVAL';
-      if (status === -2) return 'OVERDUE';
-      if (status === 0) return 'TO PAY';
-      return 'UNKNOWN';
-  };
-
   return (
     <SafeAreaView style={styles.container}>
-      {/* Header */}
       <View style={styles.header}>
-        <View style={styles.headerTop}>
-            <TouchableOpacity onPress={() => navigation.goBack()}><Icon name="arrow-left" size={24} color="#333" /></TouchableOpacity>
-            <Text style={styles.headerTitle}>My Payments</Text>
-            <View style={{width:24}}/>
-        </View>
-        
-        {/* Tabs */}
-        <View style={styles.tabContainer}>
-          <TouchableOpacity style={[styles.tab, activeTab === 'history' && styles.activeTab]} onPress={() => setActiveTab('history')}>
-            <Text style={[styles.tabText, activeTab === 'history' && styles.activeTabText]}>History</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.tab, activeTab === 'upcoming' && styles.activeTab]} onPress={() => setActiveTab('upcoming')}>
-            <Text style={[styles.tabText, activeTab === 'upcoming' && styles.activeTabText]}>Upcoming</Text>
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+            <Icon name="arrow-left" size={24} color="#333" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>My Payments</Text>
       </View>
 
-      {loading && !refreshing ? (
-        <ActivityIndicator size="large" color={COLORS.primary} style={{ marginTop: 50 }} />
-      ) : (
-        <FlatList
-          data={activeTab === 'history' ? paymentData.history : paymentData.upcoming}
-          keyExtractor={item => item.id.toString()}
-          renderItem={renderItem}
-          contentContainerStyle={{ padding: 20, paddingBottom: 50 }}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchData(); }} />}
-          ListEmptyComponent={
-            <View style={styles.empty}>
-              <Icon name={activeTab === 'history' ? "history" : "calendar-check-outline"} size={60} color="#ccc" />
-              <Text style={styles.emptyText}>No {activeTab} records found.</Text>
-            </View>
-          }
-        />
-      )}
+      {/* Tabs */}
+      <View style={styles.tabContainer}>
+        <TouchableOpacity 
+            style={[styles.tab, activeTab === 'upcoming' && styles.activeTab]} 
+            onPress={() => setActiveTab('upcoming')}
+        >
+            <Text style={[styles.tabText, activeTab === 'upcoming' && styles.activeTabText]}>Upcoming</Text>
+            {upcomingList.length > 0 && <View style={styles.badge}><Text style={styles.badgeText}>{upcomingList.length}</Text></View>}
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+            style={[styles.tab, activeTab === 'history' && styles.activeTab]} 
+            onPress={() => setActiveTab('history')}
+        >
+            <Text style={[styles.tabText, activeTab === 'history' && styles.activeTabText]}>History</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Content */}
+      <View style={styles.content}>
+        {loading && !refreshing ? (
+            <ActivityIndicator size="large" color={COLORS.primary} style={{marginTop: 50}} />
+        ) : (
+            <FlatList
+                data={activeTab === 'history' ? historyList : upcomingList}
+                keyExtractor={(item) => item.paymentId.toString()}
+                renderItem={renderPaymentCard}
+                contentContainerStyle={{ padding: 20, paddingBottom: 50 }}
+                showsVerticalScrollIndicator={false}
+                refreshControl={
+                    <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchPaymentData(); }} colors={[COLORS.primary]} />
+                }
+                ListEmptyComponent={
+                    <View style={styles.emptyContainer}>
+                        <Icon name={activeTab === 'history' ? "history" : "calendar-check"} size={60} color="#DDD" />
+                        <Text style={styles.emptyText}>No {activeTab} payments found.</Text>
+                    </View>
+                }
+            />
+        )}
+      </View>
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8F9FB' },
-  header: { backgroundColor: 'white', paddingBottom: 0, borderBottomWidth: 1, borderBottomColor: '#eee', elevation: 2 },
-  headerTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 20 },
-  headerTitle: { fontSize: 20, fontWeight: 'bold', color: '#1A1A1A' },
-  tabContainer: { flexDirection: 'row', paddingHorizontal: 20 },
-  tab: { flex: 1, paddingVertical: 15, alignItems: 'center', borderBottomWidth: 3, borderBottomColor: 'transparent' },
+  header: { flexDirection: 'row', alignItems: 'center', padding: 20, backgroundColor: 'white', elevation: 2 },
+  backBtn: { marginRight: 15 },
+  headerTitle: { fontSize: 20, fontWeight: 'bold', color: '#333' },
+  
+  tabContainer: { flexDirection: 'row', backgroundColor: 'white', paddingHorizontal: 20, borderBottomWidth: 1, borderBottomColor: '#EEE' },
+  tab: { flex: 1, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', paddingVertical: 15, borderBottomWidth: 3, borderBottomColor: 'transparent' },
   activeTab: { borderBottomColor: COLORS.primary },
-  tabText: { fontWeight: '600', color: '#888', fontSize: 15 },
+  tabText: { fontSize: 16, fontWeight: '600', color: '#888' },
   activeTabText: { color: COLORS.primary, fontWeight: 'bold' },
+  badge: { backgroundColor: '#FF5252', borderRadius: 10, paddingHorizontal: 6, paddingVertical: 1, marginLeft: 8 },
+  badgeText: { color: 'white', fontSize: 10, fontWeight: 'bold' },
+
+  content: { flex: 1 },
   
-  card: { backgroundColor: 'white', borderRadius: 16, padding: 20, marginBottom: 15, elevation: 3, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 5 },
-  urgentCard: { borderWidth: 1, borderColor: '#FFCDD2', backgroundColor: '#FFEBEE' },
+  card: { backgroundColor: 'white', borderRadius: 15, padding: 15, marginBottom: 15, elevation: 3, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 4 },
+  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  logo: { width: 40, height: 40, borderRadius: 8 },
+  iconPlaceholder: { width: 40, height: 40, borderRadius: 8, backgroundColor: COLORS.primary, justifyContent: 'center', alignItems: 'center' },
+  courseName: { fontSize: 16, fontWeight: 'bold', color: '#333' },
+  batchName: { fontSize: 12, color: '#666' },
   
-  rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-  badge: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8 },
-  badgeText: { fontSize: 10, fontWeight: 'bold', textTransform: 'uppercase' },
-  dateText: { fontSize: 12, color: '#777', fontWeight: '500' },
-  
-  courseTitle: { fontSize: 16, fontWeight: 'bold', color: '#333', marginBottom: 2 },
-  subTitle: { fontSize: 13, color: '#666', marginBottom: 12 },
-  
-  amountText: { fontSize: 20, fontWeight: 'bold', color: '#333' },
-  
-  urgentBadge: { flexDirection:'row', alignItems:'center', backgroundColor: '#FFCDD2', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 },
-  urgentText: { color: '#C62828', fontSize: 11, fontWeight: 'bold', marginLeft: 4 },
-  
-  payNowBtn: { backgroundColor: COLORS.primary, marginTop: 15, padding: 14, borderRadius: 12, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', elevation: 2 },
-  payNowText: { color: 'white', fontWeight: 'bold', fontSize: 15 },
-  
-  empty: { alignItems: 'center', marginTop: 100 },
-  emptyText: { color: '#999', marginTop: 15, fontSize: 16 }
+  statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
+  statusText: { fontSize: 11, fontWeight: 'bold' },
+
+  divider: { height: 1, backgroundColor: '#EEE', marginVertical: 8 },
+
+  cardBody: { marginBottom: 10 },
+  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  label: { fontSize: 13, color: '#888' },
+  value: { fontSize: 14, fontWeight: '600', color: '#333' },
+
+  payBtn: { backgroundColor: COLORS.primary, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', paddingVertical: 12, borderRadius: 10, marginTop: 5 },
+  payBtnText: { color: 'white', fontWeight: 'bold', fontSize: 14, marginRight: 5 },
+
+  emptyContainer: { alignItems: 'center', marginTop: 80 },
+  emptyText: { marginTop: 10, color: '#999', fontSize: 16 }
 });
 
 export default PaymentsScreen;

@@ -83,11 +83,10 @@ android {
         applicationId "com.imaacademyapp"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode 3      // <--- CHANGED TO 3
+        versionName "1.0.0" // <--- CHANGED TO 1.0.0
     }
     
-    // 🔥 MEKA THAMA FIX EKA (Release Config)
     signingConfigs {
         debug {
             storeFile file('debug.keystore')
@@ -113,7 +112,6 @@ android {
             // Caution! In production, you need to generate your own keystore file.
             // see https://reactnative.dev/docs/signed-apk-android.
             
-            // 🔥 MEKA CHANGE KALA (.release walata)
             signingConfig signingConfigs.release
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
