@@ -1,4 +1,4 @@
-package com.imaacademyapp
+package com.imacampus.app
 
 import android.os.Bundle // 🔥 Meka add kara
 import com.facebook.react.ReactActivity

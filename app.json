@@ -4,10 +4,10 @@
     "slug": "imaacademyapp",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./src/assets/logo.png",
     "userInterfaceStyle": "light",
     "splash": {
-      "image": "./assets/splash.png",
+      "image": "./src/assets/logo.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
@@ -18,20 +18,29 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.imacampus.app",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
-      }
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSPhotoLibraryUsageDescription": "The app accesses your photos to upload profile pictures.",
+        "NSCameraUsageDescription": "The app accesses your camera to take profile pictures.",
+        "NSMicrophoneUsageDescription": "The app accesses your microphone for video."
+      },
+      "googleServicesFile": "./GoogleService-Info.plist"
     },
     "android": {
       "package": "com.imacampus.app",
       "versionCode": 2,
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./src/assets/logo.png",
         "backgroundColor": "#ffffff"
-      }
+      },
+      "googleServicesFile": "./android/app/google-services.json"
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./src/assets/logo.png"
     },
+    "plugins": [
+      "@react-native-firebase/app",
+      "@react-native-firebase/messaging"
+    ],
     "extra": {
       "eas": {
         "projectId": "acdf75f5-3459-4ffa-b1d1-244d4d752220"
