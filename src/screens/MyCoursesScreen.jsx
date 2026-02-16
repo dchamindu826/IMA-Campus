@@ -3,7 +3,7 @@ import { View, Text, FlatList, StyleSheet, TouchableOpacity, Image, ActivityIndi
 import { SafeAreaView } from 'react-native-safe-area-context'; // 🔥 Use SafeAreaView for Notch
 import api, { IMAGE_URL } from '../services/api';
 import COLORS from '../constants/colors';
-import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import { MaterialCommunityIcons as Icon } from '@expo/vector-icons';
 
 const MyCoursesScreen = ({ navigation }) => {
   const [enrolled, setEnrolled] = useState([]);

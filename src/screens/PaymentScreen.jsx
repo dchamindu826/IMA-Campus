@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context'; 
 import { useFocusEffect } from '@react-navigation/native';
-import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import { MaterialCommunityIcons as Icon } from '@expo/vector-icons';
 import notifee, { AndroidImportance, TriggerType } from '@notifee/react-native';
 import COLORS from '../constants/colors';
 import api, { IMAGE_URL } from '../services/api';

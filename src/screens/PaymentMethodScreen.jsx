@@ -4,7 +4,7 @@ import {
   ActivityIndicator, Image, Platform, Alert, TextInput 
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import { MaterialCommunityIcons as Icon } from '@expo/vector-icons';
 import { launchImageLibrary } from 'react-native-image-picker';
 import COLORS from '../constants/colors';
 import api from '../services/api';

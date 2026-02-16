@@ -5,7 +5,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import notifee, { TriggerType, AndroidImportance, AndroidStyle } from '@notifee/react-native';
 import api from '../services/api';
 import COLORS from '../constants/colors';
-import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import { MaterialCommunityIcons as Icon } from '@expo/vector-icons';
 
 // --- COMPONENT 1: Blinking JOIN Button ---
 const BlinkingButton = ({ onPress, disabled }) => {

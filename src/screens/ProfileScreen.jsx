@@ -3,7 +3,7 @@ import {
   View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, 
   Image, ActivityIndicator, Platform, KeyboardAvoidingView 
 } from 'react-native';
-import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import { MaterialCommunityIcons as Icon } from '@expo/vector-icons';
 import { launchImageLibrary } from 'react-native-image-picker';
 import COLORS from '../constants/colors';
 import { AuthContext } from '../context/AuthContext';

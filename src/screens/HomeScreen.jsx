@@ -4,7 +4,7 @@ import {
   Image, ActivityIndicator, Modal, FlatList, Dimensions, RefreshControl,
   AppState, Linking // 🔥 Added Linking
 } from 'react-native';
-import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import { MaterialCommunityIcons as Icon } from '@expo/vector-icons';
 import LinearGradient from 'react-native-linear-gradient';
 import COLORS from '../constants/colors';
 import { useFocusEffect } from '@react-navigation/native';

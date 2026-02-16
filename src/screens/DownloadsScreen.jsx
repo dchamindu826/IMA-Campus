@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Modal, Dimensions, ActivityIndicator } from 'react-native';
+import { 
+  View, Text, StyleSheet, FlatList, TouchableOpacity, Modal, Dimensions, ActivityIndicator, Platform 
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import RNFS from 'react-native-fs';
-import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
-import Video from 'react-native-video';
+import { MaterialCommunityIcons as Icon } from '@expo/vector-icons';
+import { Video, ResizeMode } from 'expo-av';
 import COLORS from '../constants/colors';
 import CustomAlert from '../components/CustomAlert';
 
@@ -20,10 +22,16 @@ const DownloadsScreen = () => {
   const [itemToDelete, setItemToDelete] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // STORAGE LIMIT 5GB (5 * 1024)
+  // STORAGE LIMIT 5GB
   const STORAGE_LIMIT_MB = 5120; 
 
   useFocusEffect(useCallback(() => { loadDownloads(); }, []));
+
+  // 🔥 SECURE PATH GENERATOR
+  // මේකෙන් තමයි අපි ෆයිල් එක තියෙන තැන හොයාගන්නේ. Android/iOS දෙකේම Hidden Path එක.
+  const getSecurePath = (fileName) => {
+      return `${RNFS.DocumentDirectoryPath}/${fileName}`;
+  };
 
   const loadDownloads = async () => {
     try {
@@ -33,25 +41,29 @@ const DownloadsScreen = () => {
       let totalSize = 0;
       const validItems = [];
       
-      // Filter out files that don't exist anymore
       for (let item of items) {
-        if (await RNFS.exists(item.localPath)) {
-          const stats = await RNFS.stat(item.localPath);
+        // අපි දැන් බලන්නේ fileName එකෙන් අලුත් path එක හදාගෙන
+        // (AsyncStorage එකේ පරණ full path එක තිබ්බත් අපි පාවිච්චි කරන්නේ fileName එක විතරයි)
+        const fileName = item.fileName || `video_${item.id}.mp4`; // fileName එක save කරලා නැත්නම් ID එකෙන් හදාගන්නවා
+        const securePath = getSecurePath(fileName);
+
+        if (await RNFS.exists(securePath)) {
+          const stats = await RNFS.stat(securePath);
           const sizeMB = parseInt(stats.size) / (1024 * 1024);
           totalSize += sizeMB;
-          validItems.push({ ...item, size: sizeMB.toFixed(1) });
+          // අපි item එකට අලුත් path එක set කරනවා
+          validItems.push({ ...item, localPath: securePath, fileName: fileName, size: sizeMB.toFixed(1) });
         }
       }
       
-      // Update if any files were missing
       if (validItems.length !== items.length) {
           await AsyncStorage.setItem('my_downloads', JSON.stringify(validItems));
       }
 
-      setRecordings(validItems.reverse()); // Show newest first
+      setRecordings(validItems.reverse());
       setTotalStorageUsed(totalSize);
     } catch (e) { 
-        console.log(e);
+        console.log("Load Error:", e);
     } finally { setLoading(false); }
   };
 
@@ -64,8 +76,9 @@ const DownloadsScreen = () => {
   const handleDelete = async () => {
     if (!itemToDelete) return;
     try {
-      if (await RNFS.exists(itemToDelete.localPath)) {
-          await RNFS.unlink(itemToDelete.localPath);
+      const filePath = itemToDelete.localPath;
+      if (await RNFS.exists(filePath)) {
+          await RNFS.unlink(filePath);
       }
       const res = await AsyncStorage.getItem('my_downloads');
       const items = res ? JSON.parse(res) : [];
@@ -83,27 +96,70 @@ const DownloadsScreen = () => {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <CustomAlert isVisible={alertVisible} title={alertConfig.title} message={alertConfig.msg} type={alertConfig.type} onClose={itemToDelete ? handleDelete : () => setAlertVisible(false)} />
-      <View style={styles.headerArea}><Text style={styles.headerText}>My Downloads</Text><Text style={styles.subHeaderText}>Watch your recordings offline</Text></View>
-      <View style={styles.storageBox}>
-        <View style={styles.storageHeader}><Text style={styles.storageLabel}>Total Storage Usage</Text><Text style={styles.storageValue}>{totalStorageUsed.toFixed(1)} MB / {STORAGE_LIMIT_MB} MB</Text></View>
-        <View style={styles.progressBarContainer}><View style={[styles.progressBar, { width: `${Math.min((totalStorageUsed / STORAGE_LIMIT_MB) * 100, 100)}%` }]} /></View>
+      
+      <View style={styles.headerArea}>
+        <Text style={styles.headerText}>My Downloads</Text>
+        <Text style={styles.subHeaderText}>Watch your recordings offline</Text>
       </View>
+
+      <View style={styles.storageBox}>
+        <View style={styles.storageHeader}>
+            <Text style={styles.storageLabel}>Total Storage Usage</Text>
+            <Text style={styles.storageValue}>{totalStorageUsed.toFixed(1)} MB / {STORAGE_LIMIT_MB} MB</Text>
+        </View>
+        <View style={styles.progressBarContainer}>
+            <View style={[styles.progressBar, { width: `${Math.min((totalStorageUsed / STORAGE_LIMIT_MB) * 100, 100)}%` }]} />
+        </View>
+      </View>
+
       {loading ? <ActivityIndicator size="large" color={COLORS.primary} style={{ marginTop: 50 }} /> : (
-        <FlatList data={recordings} keyExtractor={(item) => item.id.toString()} contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 100 }}
-          ListEmptyComponent={<View style={{ alignItems: 'center', marginTop: 50 }}><Icon name="cloud-off-outline" size={60} color="#ccc" /><Text style={{ color: '#999', marginTop: 10 }}>No downloads found.</Text></View>}
+        <FlatList 
+          data={recordings} 
+          keyExtractor={(item) => item.id.toString()} 
+          contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 100 }}
+          ListEmptyComponent={
+            <View style={{ alignItems: 'center', marginTop: 50 }}>
+                <Icon name="cloud-off-outline" size={60} color="#ccc" />
+                <Text style={{ color: '#999', marginTop: 10 }}>No downloads found.</Text>
+            </View>
+          }
           renderItem={({ item }) => (
             <View style={styles.itemCard}>
-              <TouchableOpacity onPress={() => setSelectedVideo(item.localPath)}><Icon name="play-circle" size={50} color={COLORS.primary} /></TouchableOpacity>
-              <View style={styles.itemDetails}><Text style={styles.itemTitle}>{item.title}</Text><Text style={styles.metaText}>{item.size} MB | {item.date}</Text></View>
-              <TouchableOpacity onPress={() => confirmDelete(item)} style={styles.deleteBtn}><Icon name="trash-can-outline" size={22} color="#FF5252" /></TouchableOpacity>
+              <TouchableOpacity onPress={() => setSelectedVideo(item.localPath)}>
+                <Icon name="play-circle" size={50} color={COLORS.primary} />
+              </TouchableOpacity>
+              <View style={styles.itemDetails}>
+                <Text style={styles.itemTitle}>{item.title}</Text>
+                <Text style={styles.metaText}>{item.size} MB | {item.date}</Text>
+              </View>
+              <TouchableOpacity onPress={() => confirmDelete(item)} style={styles.deleteBtn}>
+                <Icon name="trash-can-outline" size={22} color="#FF5252" />
+              </TouchableOpacity>
             </View>
-          )} />
+          )} 
+        />
       )}
+
       <Modal visible={!!selectedVideo} animationType="slide" onRequestClose={() => setSelectedVideo(null)}>
         <View style={styles.playerWrapper}>
-            {/* 🔥 Use file:// prefix for local files */}
-            <Video source={{ uri: `file://${selectedVideo}` }} style={styles.fullScreenVideo} controls={true} resizeMode="contain" onEnd={() => setSelectedVideo(null)} onError={(e) => console.log("Video Error:", e)} />
-            <TouchableOpacity style={styles.closePlayerBtn} onPress={() => setSelectedVideo(null)}><Icon name="close" size={30} color="white" /></TouchableOpacity>
+            {selectedVideo && (
+                <Video
+                    source={{ uri: Platform.OS === 'ios' ? selectedVideo : `file://${selectedVideo}` }}
+                    style={styles.fullScreenVideo}
+                    useNativeControls
+                    resizeMode={ResizeMode.CONTAIN}
+                    shouldPlay
+                    onPlaybackStatusUpdate={status => {
+                        if (status.didJustFinish) {
+                            setSelectedVideo(null);
+                        }
+                    }}
+                    onError={(e) => console.log("Video Error:", e)}
+                />
+            )}
+            <TouchableOpacity style={styles.closePlayerBtn} onPress={() => setSelectedVideo(null)}>
+                <Icon name="close" size={30} color="white" />
+            </TouchableOpacity>
         </View>
       </Modal>
     </SafeAreaView>

@@ -12,7 +12,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import RNFS from 'react-native-fs';
 import api from '../services/api';
 import COLORS from '../constants/colors';
-import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import { MaterialCommunityIcons as Icon } from '@expo/vector-icons';
 import CustomAlert from '../components/CustomAlert';
 
 const { width } = Dimensions.get('window');
