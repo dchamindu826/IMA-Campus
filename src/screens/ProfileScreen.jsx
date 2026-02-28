@@ -1,10 +1,12 @@
 import React, { useState, useContext, useEffect } from 'react';
 import { 
   View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, 
-  Image, ActivityIndicator, Platform, KeyboardAvoidingView 
+  Image, ActivityIndicator, Platform, KeyboardAvoidingView, Alert 
 } from 'react-native';
 import { MaterialCommunityIcons as Icon } from '@expo/vector-icons';
 import { launchImageLibrary } from 'react-native-image-picker';
+// 🔥 AsyncStorage import කරගන්න ඕන
+import AsyncStorage from '@react-native-async-storage/async-storage'; 
 import COLORS from '../constants/colors';
 import { AuthContext } from '../context/AuthContext';
 import api, { IMAGE_URL } from '../services/api';
@@ -23,7 +25,6 @@ const ProfileScreen = ({ navigation }) => {
     houseNo: '', streetName: '', village: '', town: '', district: ''
   });
 
-  // User info context eken form ekata load kirima
   useEffect(() => {
     if (userInfo) {
       setForm({
@@ -48,8 +49,64 @@ const ProfileScreen = ({ navigation }) => {
 
   const handleLogout = async () => {
     await logout();
-    // App eka mulata reset kirima
     navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
+  };
+
+  // 🔥 Delete Account Function එක
+  // 🔥 Delete Account Function එක
+  const handleDeleteAccount = () => {
+    Alert.alert(
+      "Delete Account",
+      "Warning: Deleting your account is permanent. You will lose access to all your enrolled classes, physical course materials, and video recordings. This action cannot be undone.\n\nAre you sure you want to proceed?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete My Account",
+          style: "destructive",
+          onPress: async () => {
+            setLoading(true);
+            try {
+              // 1. ඔයාගේ Formspree එකට ඊමේල් එකක් යවනවා (මෙතනට ඔයාගේ ලින්ක් එක දැම්මා)
+              await fetch('https://formspree.io/f/mpqjlkgw', {
+                method: 'POST',
+                headers: { 
+                  'Accept': 'application/json',
+                  'Content-Type': 'application/json' 
+                },
+                body: JSON.stringify({
+                  message: 'Account Deletion Request from IMA Campus App',
+                  userId: userInfo?.id || 'Unknown',
+                  userName: `${userInfo?.fName} ${userInfo?.lName}`,
+                  nic: userInfo?.nic || 'No NIC',
+                  phone: userInfo?.phone || 'No Phone'
+                })
+              });
+
+              // 2. අනාගතයේ ලොග් වෙන එක නවත්තන්න Flag එකක් සේව් කරනවා
+              await AsyncStorage.setItem('account_deleted', 'true');
+
+              // 3. User ව Log out කරනවා
+              await logout();
+
+              await AsyncStorage.setItem('account_deleted', 'true');
+
+              // 4. Success Alert එක දීලා Login එකට යවනවා
+              Alert.alert(
+                "Request Submitted", 
+                "Your account deletion request has been submitted. Your data will be permanently removed within 3-7 business days. You will be logged out now.",
+                [{ text: "OK", onPress: () => navigation.reset({ index: 0, routes: [{ name: 'Login' }] }) }]
+              );
+
+            } catch (error) {
+              console.error("Deletion Error: ", error);
+              showAlert("Error", "Something went wrong. Please try again.", "error");
+            } finally {
+              setLoading(false);
+            }
+          }
+        }
+      ]
+    );
   };
 
   const handleImagePick = async () => {
@@ -72,7 +129,6 @@ const ProfileScreen = ({ navigation }) => {
       const res = await api.post('/updateProfilePic', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
-      // Backend eken dena aluth image name eka update kirima
       updateUserInfo({ image: res.data.image || userInfo.image });
       showAlert("Success", "Profile picture updated!", "success");
     } catch (error) {
@@ -86,7 +142,7 @@ const ProfileScreen = ({ navigation }) => {
     setLoading(true);
     try {
       await api.post('/updateProfile', form);
-      updateUserInfo(form); // Context eka update karanawa
+      updateUserInfo(form); 
       showAlert("Success", "Profile updated successfully!", "success");
     } catch (error) {
       showAlert("Error", "Failed to update profile. Check your data.", "error");
@@ -155,6 +211,13 @@ const ProfileScreen = ({ navigation }) => {
           <TouchableOpacity style={styles.updateBtn} onPress={handleUpdateProfile} disabled={loading}>
             {loading ? <ActivityIndicator color="white" /> : <Text style={styles.btnText}>Update Profile</Text>}
           </TouchableOpacity>
+
+          {/* 🔥 Delete Account Button එක */}
+          <TouchableOpacity style={styles.deleteBtn} onPress={handleDeleteAccount} disabled={loading}>
+            <Icon name="delete-outline" size={20} color="#FF3B30" />
+            <Text style={styles.deleteBtnText}>Delete Account</Text>
+          </TouchableOpacity>
+
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -179,6 +242,10 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row' },
   updateBtn: { backgroundColor: COLORS.primary, borderRadius: 15, height: 55, justifyContent: 'center', alignItems: 'center', marginTop: 25, elevation: 5 },
   btnText: { color: 'white', fontSize: 16, fontWeight: 'bold' },
+  
+  // 🔥 Delete Button Styles
+  deleteBtn: { flexDirection: 'row', backgroundColor: '#FFF0F0', borderRadius: 15, height: 55, justifyContent: 'center', alignItems: 'center', marginTop: 15, borderWidth: 1, borderColor: '#FF3B30' },
+  deleteBtnText: { color: '#FF3B30', fontSize: 16, fontWeight: 'bold', marginLeft: 8 },
 });
 
 export default ProfileScreen;

@@ -20,7 +20,7 @@ const Tab = createMaterialTopTabNavigator();
 
 // --- HELPER: Get Consistent Path ---
 const getFilePath = (itemId) => {
-    return `${ReactNativeBlobUtil.fs.dirs.DownloadDir}/f_${itemId}.mp4`;
+    return `${RNFS.DocumentDirectoryPath}/video_${itemId}.mp4`;
 };
 
 // --- COMPONENT: Beautiful Confirmation Modal ---
@@ -403,24 +403,42 @@ const CourseContentScreen = ({ route, navigation }) => {
 
       {content && (
         <Tab.Navigator 
-            screenOptions={({ route }) => ({
-                tabBarActiveTintColor: COLORS.primary,
-                tabBarInactiveTintColor: '#999',
-                tabBarLabelStyle: { fontWeight: 'bold', fontSize: 12, textTransform: 'capitalize', marginLeft: -5 },
-                tabBarIndicatorStyle: { backgroundColor: COLORS.primary, height: 3, borderRadius: 3 },
-                tabBarStyle: { elevation: 0, shadowOpacity: 0, borderBottomWidth: 1, borderBottomColor: '#eee', backgroundColor: 'white' },
-                tabBarPressColor: '#F8F9FB',
-                tabBarShowIcon: true,
-                tabBarIconStyle: { width: 22, height: 22 },
-                tabBarIcon: ({ color, focused }) => {
-                    let iconName;
-                    if (route.name === 'Live') iconName = 'broadcast';
-                    else if (route.name === 'Recordings') iconName = 'play-circle-outline';
-                    else if (route.name === 'Documents') iconName = 'file-document-outline';
-                    return <Icon name={iconName} size={22} color={color} />;
-                }
-            })}
-        >
+    screenOptions={({ route }) => ({
+        tabBarActiveTintColor: '#FF0000', // 🔥 Test කරන්න තද රතු පාටක් දෙන්න
+        tabBarInactiveTintColor: '#000000', // 🔥 පරීක්ෂා කිරීමට තද කළු පාටක් දෙන්න
+        tabBarLabelStyle: { 
+            fontWeight: 'bold', 
+            fontSize: 12, 
+            textTransform: 'capitalize' 
+        },
+        tabBarIndicatorStyle: { 
+            backgroundColor: COLORS.primary, 
+            height: 4, 
+            borderRadius: 10 
+        },
+        tabBarStyle: { 
+            backgroundColor: '#F0F0F0', // 🔥 පැහැදිලිව පේන්න අළු පාටක්
+            elevation: 5,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: 0.2,
+            borderBottomWidth: 1,
+            borderBottomColor: '#DDD',
+        },
+        tabBarItemStyle: {
+            paddingVertical: 10,
+        },
+        tabBarShowIcon: true,
+        tabBarIcon: ({ color }) => {
+            let iconName;
+            if (route.name === 'Live') iconName = 'broadcast';
+            else if (route.name === 'Recordings') iconName = 'play-circle-outline';
+            else if (route.name === 'Documents') iconName = 'file-document-outline';
+            return <Icon name={iconName} size={20} color={color} />;
+        },
+    })}
+>
+        
           <Tab.Screen name="Live" children={() => <SectionedContentList type="live" data={content.liveClasses} onPlay={handlePlayVideo} />} />
           <Tab.Screen name="Recordings" children={() => <SectionedContentList type="recording" data={content.recordings} onPlay={handlePlayVideo} onDownloadComplete={showDownloadSuccess} months={content.recodingMonths} />} />
           

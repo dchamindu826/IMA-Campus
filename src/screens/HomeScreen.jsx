@@ -33,7 +33,6 @@ const HomeScreen = ({ navigation }) => {
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedPost, setSelectedPost] = useState(null); 
 
-  // 🔥 AppState Logic
   const appState = useRef(AppState.currentState);
   const [appStateVisible, setAppStateVisible] = useState(appState.current);
 
@@ -62,7 +61,11 @@ const HomeScreen = ({ navigation }) => {
   const loadRecents = async () => {
       try {
           const historyStr = await AsyncStorage.getItem('recent_activity');
-          if (historyStr) setRecents(JSON.parse(historyStr));
+          if (historyStr) {
+              setRecents(JSON.parse(historyStr));
+          } else {
+              setRecents([]); // Ensure it is empty if nothing is found
+          }
       } catch (e) { console.log("Error loading recents", e); }
   };
 
@@ -104,10 +107,8 @@ const HomeScreen = ({ navigation }) => {
     { id: 4, name: 'Support', icon: 'headset', color: '#F3E5F5', iconColor: '#9C27B0', nav: null },
   ];
 
-  // 🔥 Helper to render text with clickable links
   const renderTextWithLinks = (text) => {
     if (!text) return null;
-    // Regex to detect URLs (http/https)
     const urlRegex = /(https?:\/\/[^\s]+)/g;
     const parts = text.split(urlRegex);
 
@@ -263,33 +264,51 @@ const HomeScreen = ({ navigation }) => {
             </View>
         )}
 
-        {recents.length > 0 && (
-          <View>
+        {/* 🔥 අලුතෙන් වෙනස් කරපු Recent Courses Section එක */}
+        <View style={{ marginTop: 10 }}>
             <Text style={styles.sectionTitle}>Continue Learning</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{paddingLeft: 20, paddingRight: 20, paddingBottom: 20}}>
-                {recents.map((item, index) => (
-                    <TouchableOpacity 
-                        key={index} 
-                        style={styles.recentCard}
-                        onPress={() => {
-                            navigation.navigate('CourseContent', { 
-                                courseId: item.courseId, 
-                                courseTitle: item.courseTitle,
-                                autoPlayItem: item 
-                            });
-                        }}
-                    >
-                        <View style={styles.recentIconBox}><Icon name="play-circle" size={30} color="white" /></View>
-                        <View style={{flex: 1, marginRight: 10}}>
-                            <Text style={styles.recentTitle} numberOfLines={2}>{item.title}</Text>
-                            <Text style={styles.recentSub} numberOfLines={1}>{item.courseTitle}</Text>
-                        </View>
-                        <Icon name="chevron-right" size={24} color="#ccc" />
-                    </TouchableOpacity>
-                ))}
-            </ScrollView>
-          </View>
-        )}
+            
+            {recents.length > 0 ? (
+                <ScrollView 
+                    horizontal 
+                    showsHorizontalScrollIndicator={false} 
+                    contentContainerStyle={{ paddingLeft: 20, paddingRight: 20, paddingBottom: 30 }}
+                >
+                    {recents.map((item, index) => (
+                        <TouchableOpacity 
+                            key={index} 
+                            style={styles.recentCard}
+                            activeOpacity={0.8}
+                            onPress={() => {
+                                navigation.navigate('CourseContent', { 
+                                    courseId: item.courseId, 
+                                    courseTitle: item.courseTitle,
+                                    autoPlayItem: item 
+                                });
+                            }}
+                        >
+                            <LinearGradient colors={[COLORS.primary, '#E65100']} style={styles.recentThumbnail}>
+                                <Icon name="play-circle-outline" size={45} color="rgba(255,255,255,0.9)" />
+                            </LinearGradient>
+                            <View style={styles.recentDetails}>
+                                <Text style={styles.recentTitle} numberOfLines={2}>{item.title}</Text>
+                                <Text style={styles.recentSub} numberOfLines={1}>{item.courseTitle}</Text>
+                            </View>
+                        </TouchableOpacity>
+                    ))}
+                </ScrollView>
+            ) : (
+                // 🔥 කිසිම Course එකක් නැත්නම් මේක පෙනෙයි
+                <View style={styles.emptyRecentBox}>
+                    <View style={styles.emptyRecentIcon}>
+                        <Icon name="history" size={30} color="#9CA3AF" />
+                    </View>
+                    <Text style={styles.emptyRecentTitle}>No recent activity</Text>
+                    <Text style={styles.emptyRecentSub}>Your recently watched classes will appear here.</Text>
+                </View>
+            )}
+        </View>
+
       </ScrollView>
 
       {/* MODAL CODE */}
@@ -320,7 +339,6 @@ const HomeScreen = ({ navigation }) => {
                       <Text style={styles.detailTitle}>{selectedPost.title || "Notice"}</Text>
                       <Text style={styles.detailTime}>{selectedPost.created_at ? moment(selectedPost.created_at).format('MMMM Do YYYY, h:mm a') : ''}</Text>
                       
-                      {/* 🔥 RENDER BODY WITH CLICKABLE LINKS */}
                       {renderTextWithLinks(selectedPost.caption || selectedPost.description || selectedPost.body)}
                       
                       <TouchableOpacity style={styles.backBtn} onPress={() => setSelectedPost(null)}>
@@ -386,10 +404,75 @@ const styles = StyleSheet.create({
   dotContainer: { flexDirection: 'row', justifyContent: 'center', marginBottom: 25, marginTop: 10 },
   dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#DDD', marginHorizontal: 4 },
   activeDot: { backgroundColor: COLORS.primary, width: 20 },
-  recentCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'white', padding: 15, borderRadius: 15, marginRight: 15, width: width - 80, elevation: 3 },
-  recentIconBox: { width: 50, height: 50, borderRadius: 25, backgroundColor: COLORS.primary, justifyContent: 'center', alignItems: 'center', marginRight: 15 },
-  recentTitle: { fontWeight: 'bold', fontSize: 15, color: '#333', marginBottom: 2 },
-  recentSub: { color: '#888', fontSize: 12 },
+  
+  // Recent Card Styles
+  recentCard: { 
+      width: 220, 
+      backgroundColor: 'white', 
+      borderRadius: 16, 
+      marginRight: 15, 
+      elevation: 4,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 3 },
+      shadowOpacity: 0.1,
+      shadowRadius: 5,
+      overflow: 'hidden', 
+  },
+  recentThumbnail: { 
+      height: 110, 
+      justifyContent: 'center', 
+      alignItems: 'center' 
+  },
+  recentDetails: { 
+      padding: 15 
+  },
+  recentTitle: { 
+      fontWeight: 'bold', 
+      fontSize: 15, 
+      color: '#222', 
+      marginBottom: 4,
+      lineHeight: 20
+  },
+  recentSub: { 
+      color: '#666', 
+      fontSize: 12,
+      fontWeight: '500'
+  },
+
+  // 🔥 Empty Recent Box Styles
+  emptyRecentBox: {
+      backgroundColor: '#FFFFFF',
+      marginHorizontal: 20,
+      padding: 25,
+      borderRadius: 16,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: '#E5E7EB',
+      borderStyle: 'dashed',
+      marginBottom: 30
+  },
+  emptyRecentIcon: {
+      width: 60,
+      height: 60,
+      borderRadius: 30,
+      backgroundColor: '#F3F4F6',
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: 10
+  },
+  emptyRecentTitle: {
+      color: '#374151',
+      fontSize: 16,
+      fontWeight: 'bold',
+  },
+  emptyRecentSub: {
+      color: '#9CA3AF',
+      fontSize: 13,
+      marginTop: 4,
+      textAlign: 'center'
+  },
+
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
   modalContent: { backgroundColor: '#F0F0F0', borderTopLeftRadius: 25, borderTopRightRadius: 25, padding: 20, height: '85%' },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, paddingBottom: 15, borderBottomWidth: 1, borderBottomColor: '#ddd' },

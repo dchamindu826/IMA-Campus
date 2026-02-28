@@ -34,7 +34,7 @@ const RegisterScreen = ({ navigation }) => {
         directPhone: formData.directPhone,
         nic: formData.nic,
         password: formData.password,
-        houseNoVal: formData.houseNo, // Backend එක බලාපොරොත්තු වන field names
+        houseNoVal: formData.houseNo, 
         streetNameVal: formData.streetName,
         villageVal: formData.village,
         townVal: formData.town,
@@ -52,12 +52,10 @@ const RegisterScreen = ({ navigation }) => {
       }, 2000);
 
     } catch (error) {
-      // Backend එකෙන් එන නියම වැරැද්ද පෙන්වන්න (උදා: Phone number already exists)
       let errorMsg = "Registration failed. Please try again.";
       
       if (error.response && error.response.data) {
         if (error.response.data.errors) {
-          // පළමු validation error එක ලබාගන්න
           const firstErrorKey = Object.keys(error.response.data.errors)[0];
           errorMsg = error.response.data.errors[firstErrorKey][0];
         } else if (error.response.data.message) {
@@ -98,27 +96,38 @@ const RegisterScreen = ({ navigation }) => {
           <Text style={styles.title}>Create Account</Text>
           
           <View style={styles.row}>
-            <View style={{flex: 1, marginRight: 10}}>{renderInput("First Name", "John", "fName")}</View>
-            <View style={{flex: 1}}>{renderInput("Second Name", "Doe", "lName")}</View>
+            <View style={{flex: 1, marginRight: 10}}>{renderInput("First Name", "Janith", "fName")}</View>
+            <View style={{flex: 1}}>{renderInput("Second Name", "Karunarathna", "lName")}</View>
           </View>
 
           {renderInput("WhatsApp Number", "07********", "phone", true, false, "numeric")}
-          {renderInput("Direct Number", "07********", "directPhone", false, false, "numeric")}
+          
+          {/* Direct Phone එකත් Optional කියලා පෙන්නමු */}
+          {renderInput("Direct Number (Optional)", "07********", "directPhone", false, false, "numeric")}
+          
           {renderInput("NIC Number", "991922757V", "nic")}
 
-          <View style={styles.row}>
-            <View style={{flex: 1, marginRight: 10}}>{renderInput("House No", "39", "houseNo", false)}</View>
-            <View style={{flex: 2}}>{renderInput("Street Name", "Yay 02", "streetName")}</View>
-          </View>
-
-          {renderInput("Village", "Aralaganwila", "village")}
+          {/* 🔥 Address Details වලට වෙනම මාතෘකාවක් දැම්මා */}
+          <Text style={{fontSize: 16, fontWeight: 'bold', marginTop: 15, marginBottom: 15, color: '#333'}}>
+            Address Details (Optional)
+          </Text>
 
           <View style={styles.row}>
-            <View style={{flex: 1, marginRight: 10}}>{renderInput("Town", "Polonnaruwa", "town")}</View>
-            <View style={{flex: 1}}>{renderInput("District", "Polonnaruwa", "district")}</View>
+            <View style={{flex: 1, marginRight: 10}}>{renderInput("House No", "102/A", "houseNo", false)}</View>
+            <View style={{flex: 2}}>{renderInput("Street Name", "Wijitha Mawatha", "streetName", false)}</View>
           </View>
 
-          {renderInput("Password", "At least 8 characters", "password", true, true)}
+          {renderInput("Village", "Yakkala", "village", false, false)}
+
+          <View style={styles.row}>
+            <View style={{flex: 1, marginRight: 10}}>{renderInput("Town", "Yakkala", "town", false)}</View>
+            <View style={{flex: 1}}>{renderInput("District", "Gampaha", "district", false)}</View>
+          </View>
+
+          {/* Password එකට පොඩි margin එකක් දැම්මා ලස්සන වෙන්න */}
+          <View style={{marginTop: 10}}>
+            {renderInput("Password", "At least 8 characters", "password", true, true)}
+          </View>
 
           <TouchableOpacity style={styles.btn} onPress={handleRegister} disabled={loading}>
             {loading ? <ActivityIndicator color="white" /> : <Text style={styles.btnText}>Register Now</Text>}

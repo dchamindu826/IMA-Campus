@@ -27,7 +27,7 @@
     },
     "android": {
       "package": "com.imacampus.app",
-      "versionCode": 2,
+      "versionCode": 3,
       "adaptiveIcon": {
         "foregroundImage": "./src/assets/logo.png",
         "backgroundColor": "#ffffff"
@@ -52,7 +52,7 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "acdf75f5-3459-4ffa-b1d1-244d4d752220"
+        "projectId": "4a4b4b32-a0fa-4340-a158-1dd85ac643b8"
       }
     }
   }

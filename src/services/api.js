@@ -1,8 +1,8 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-export const BASE_URL = 'https://test.imacampus.lk/api'; 
-export const IMAGE_URL = 'https://test.imacampus.lk/storage/'; 
+export const BASE_URL = 'https://imacampus.lk/api'; 
+export const IMAGE_URL = 'https://imacampus.lk/storage/'; 
 
 const api = axios.create({
   baseURL: BASE_URL,
