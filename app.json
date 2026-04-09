@@ -1,4 +1,12 @@
 {
   "name": "ImaAcademyApp",
-  "displayName": "ImaAcademyApp"
+  "displayName": "IMA Campus",
+  "extra": {
+    "eas": {
+      "projectId": ""
+    }
+  },
+  "android": {
+    "package": "com.imaacademyapp"
+  }
 }
