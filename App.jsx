@@ -1,15 +1,17 @@
-import React, { useEffect, useContext } from 'react';
-import { StatusBar, ActivityIndicator, View, Alert, PermissionsAndroid, Platform } from 'react-native';
+import React, { useEffect, useContext, useState } from 'react';
+import { StatusBar, ActivityIndicator, View, PermissionsAndroid, Platform, DeviceEventEmitter, Modal, Text, TouchableOpacity } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import messaging from '@react-native-firebase/messaging';
 import notifee, { AndroidImportance, AndroidStyle } from '@notifee/react-native'; 
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { CourseProvider } from './src/context/CourseContext'; 
 import { AuthProvider, AuthContext } from './src/context/AuthContext'; 
 import COLORS from './src/constants/colors';
+import api from './src/services/api'; 
 
 // Screens
 import HomeScreen from './src/screens/HomeScreen';
@@ -24,11 +26,22 @@ import LoginScreen from './src/screens/LoginScreen';
 import RegisterScreen from './src/screens/RegisterScreen';
 import LiveScreen from './src/screens/LiveScreen';
 import PaymentMethodScreen from './src/screens/PaymentMethodScreen'; 
+import StaffDashboardScreen from './src/screens/StaffDashboardScreen';
+import CommunityChatScreen from './src/screens/CommunityChatScreen'; 
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
 
 function BottomTabNavigator() {
+  const [hasMonthlyPayment, setHasMonthlyPayment] = useState(false);
+
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener('update_monthly_payment_badge', (hasPayment) => {
+        setHasMonthlyPayment(hasPayment);
+    });
+    return () => sub.remove();
+  }, []);
+
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -47,7 +60,14 @@ function BottomTabNavigator() {
           else if (route.name === 'My Courses') iconName = 'play-box-multiple';
           else if (route.name === 'Payments') iconName = 'wallet';
 
-          return <Icon name={iconName} color={color} size={iconSize} />;
+          return (
+            <View>
+              <Icon name={iconName} color={color} size={iconSize} />
+              {route.name === 'Payments' && hasMonthlyPayment && (
+                <View style={{ position: 'absolute', top: -2, right: -4, width: 12, height: 12, backgroundColor: '#EF4444', borderRadius: 6, borderWidth: 2, borderColor: 'white' }} />
+              )}
+            </View>
+          );
         },
       })}
     >
@@ -61,7 +81,48 @@ function BottomTabNavigator() {
 }
 
 const AppNavigation = () => {
-  const { userToken, isLoading } = useContext(AuthContext);
+  const { userToken, isLoading, setUserToken, setUserInfo, logout } = useContext(AuthContext);
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
+
+  // 🔥 AUTO LOGOUT & POLLING LOGIC 🔥
+  useEffect(() => {
+    const subscription = DeviceEventEmitter.addListener('force_logout', () => {
+        setShowLogoutModal(true); 
+    });
+
+    let interval;
+    if (userToken) {
+        interval = setInterval(async () => {
+            try {
+                await api.get('mobile/dashboard'); 
+            } catch (error) {
+                // Interceptor eken handle wei
+            }
+        }, 5000); 
+    }
+
+    return () => {
+        subscription.remove();
+        if (interval) clearInterval(interval);
+    };
+  }, [userToken]);
+
+  const handleForceLogout = async () => {
+      setShowLogoutModal(false);
+      
+      try {
+          if (logout) {
+              await logout(); // AuthContext එකේ logout function එක තියෙනවා නම් ඒක වැඩ කරයි
+          } else {
+              // Logout function එක නැත්නම්, මේකෙන් ඔක්කොම මකලා දානවා
+              await AsyncStorage.multiRemove(['userToken', 'userInfo', 'last_active_time']);
+              if (setUserToken) setUserToken(null); 
+              if (setUserInfo) setUserInfo(null);
+          }
+      } catch (e) {
+          console.log("Error during force logout: ", e);
+      }
+  };
 
   if (isLoading) {
     return (
@@ -72,39 +133,78 @@ const AppNavigation = () => {
   }
 
   return (
-    <Stack.Navigator screenOptions={{ headerShown: false }}>
-      {userToken == null ? (
-        <>
-          <Stack.Screen name="Login" component={LoginScreen} />
-          <Stack.Screen name="Register" component={RegisterScreen} />
-        </>
-      ) : (
-        <>
-          <Stack.Screen name="MainTabs" component={BottomTabNavigator} />
-          <Stack.Screen name="Downloads" component={DownloadsScreen} options={{ headerShown: true, title: 'My Downloads' }} />
-          <Stack.Screen name="Profile" component={ProfileScreen} options={{ headerShown: true, title: 'Profile' }} />
-          <Stack.Screen name="CourseDetails" component={CourseDetailsScreen} options={{ headerShown: true, title: 'Enroll Course' }} />
-          <Stack.Screen name="PaymentScreen" component={PaymentScreen} />
-          <Stack.Screen name="CourseContent" component={CourseContentScreen} />
-          <Stack.Screen name="PaymentMethod" component={PaymentMethodScreen} options={{ title: 'Select Payment Method' }} />
-        </>
-      )}
-    </Stack.Navigator>
+    <>
+      <Stack.Navigator screenOptions={{ headerShown: false }}>
+        {userToken == null ? (
+          <>
+            <Stack.Screen name="Login" component={LoginScreen} />
+            <Stack.Screen name="Register" component={RegisterScreen} />
+          </>
+        ) : (
+          <>
+            {userInfo && userInfo.role && String(userInfo.role).toUpperCase() !== 'STUDENT' && String(userInfo.role).toUpperCase() !== 'USER' ? (
+                <Stack.Screen 
+                    name="StaffDashboard" 
+                    component={StaffDashboardScreen} 
+                    options={{ headerShown: false }} 
+                />
+            ) : (
+                <Stack.Screen 
+                    name="MainTabs" 
+                    component={BottomTabNavigator} 
+                    options={{ headerShown: false, animation: 'none' }} 
+                />
+            )}
+            <Stack.Screen name="CommunityChat" component={CommunityChatScreen} options={{ headerShown: false }} />
+            <Stack.Screen name="Downloads" component={DownloadsScreen} options={{ headerShown: false }} />
+            <Stack.Screen name="Profile" component={ProfileScreen} options={{ headerShown: true, title: 'Profile' }} />
+            <Stack.Screen name="CourseDetails" component={CourseDetailsScreen} options={{ headerShown: true, title: 'Enroll Course' }} />
+            <Stack.Screen name="PaymentScreen" component={PaymentScreen} />
+            <Stack.Screen name="CourseContent" component={CourseContentScreen} />
+            <Stack.Screen name="PaymentMethod" component={PaymentMethodScreen} options={{ title: 'Select Payment Method' }} />
+          </>
+        )}
+      </Stack.Navigator>
+
+      {/* 🔥 සිංහල + English ලස්සන POPUP එක 🔥 */}
+      <Modal visible={showLogoutModal} transparent={true} animationType="fade">
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+            <View style={{ backgroundColor: 'white', borderRadius: 20, width: '100%', overflow: 'hidden', elevation: 10 }}>
+                <View style={{ backgroundColor: COLORS.primary, padding: 20, alignItems: 'center' }}>
+                    <Icon name="shield-alert-outline" size={50} color="white" />
+                    <Text style={{ color: 'white', fontSize: 20, fontWeight: 'bold', marginTop: 10, textAlign: 'center' }}>Session Expired</Text>
+                    <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 14, fontWeight: '600', marginTop: 2, textAlign: 'center' }}>සැසිය අවසන් විය</Text>
+                </View>
+                <View style={{ padding: 24, alignItems: 'center' }}>
+                    <Text style={{ fontSize: 16, color: '#333', textAlign: 'center', marginBottom: 5, fontWeight: '700' }}>
+                        You have logged in from another device.
+                    </Text>
+                    <Text style={{ fontSize: 14, color: '#666', textAlign: 'center', marginBottom: 25, lineHeight: 22 }}>
+                        ඔබ වෙනත් උපාංගයකින් හෝ බ්‍රව්සරයකින් ගිණුමට ඇතුළු වී ඇත. කරුණාකර නැවත ලොග් වන්න.
+                    </Text>
+                    
+                    <TouchableOpacity
+                        onPress={handleForceLogout}
+                        style={{ backgroundColor: COLORS.primary, paddingVertical: 14, paddingHorizontal: 30, borderRadius: 12, width: '100%', alignItems: 'center', elevation: 2 }}
+                    >
+                        <Text style={{ color: 'white', fontWeight: '900', fontSize: 15, letterSpacing: 0.5 }}>LOGIN AGAIN</Text>
+                    </TouchableOpacity>
+                </View>
+            </View>
+        </View>
+      </Modal>
+    </>
   );
 };
 
 export default function App() {
-
-  // --- NOTIFICATION LOGIC START ---
   useEffect(() => {
     const setupNotifications = async () => {
       try {
-        // 1. Android 13+ walata Permission illanna
         if (Platform.OS === 'android' && Platform.Version >= 33) {
           await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
         }
 
-        // 2. Firebase Permissions
         const authStatus = await messaging().requestPermission();
         const enabled =
           authStatus === messaging.AuthorizationStatus.AUTHORIZED ||
@@ -114,7 +214,6 @@ export default function App() {
           console.log('Authorization status:', authStatus);
         }
 
-        // 3. Create Channel
         await notifee.createChannel({
           id: 'default', 
           name: 'General Updates',
@@ -122,25 +221,17 @@ export default function App() {
           sound: 'default',
         });
 
-        // 4. Subscribe to Topic
         await messaging().subscribeToTopic('ima_updates');
         console.log('Subscribed to ima_updates topic');
-        const token = await messaging().getToken();
-        console.log('====================================');
-        console.log('FCM TOKEN EKA:', token);
-        console.log('====================================');
       } catch (error) {
         console.log('Notification Setup Error:', error);
       }
     };
 
-    // FIX: App eka load wela thathparayak (1000ms) hitiyata passe permission illanna.
-    // Ethakota Activity eka hariyata attach wela iwarai.
     const timerId = setTimeout(() => {
       setupNotifications();
     }, 1000);
 
-    // 5. Foreground Handler
     const unsubscribe = messaging().onMessage(async remoteMessage => {
       console.log('Foreground Message Full:', JSON.stringify(remoteMessage, null, 2));
 
@@ -158,7 +249,8 @@ export default function App() {
         body: imageUrl ? truncatedBody : fullBody,
         android: {
           channelId: 'default',
-          smallIcon: 'ic_launcher',
+          smallIcon: 'ic_launcher', 
+          largeIcon: 'ic_launcher', 
           color: COLORS.primary,
           pressAction: {
             id: 'default',
@@ -184,11 +276,10 @@ export default function App() {
     });
 
     return () => {
-      clearTimeout(timerId); // Memory leaks nathi karanna
+      clearTimeout(timerId); 
       unsubscribe();
     };
   }, []);
-  // --- NOTIFICATION LOGIC END ---
 
   return (
     <AuthProvider>
