@@ -16,8 +16,10 @@ const CourseDetailsScreen = ({ route, navigation }) => {
     const { businessData, autoSelect, selectedBatchId, selectedMonthGroupId, preSelectedSubjects, paymentPlan } = route.params;
 
     const isSpecialFlow = String(businessData?.category || '').toLowerCase() !== 'others';
+    const initialStreams = businessData?.streams ? businessData.streams.split(',').map(s => s.trim()).filter(s => s && s.toLowerCase() !== 'all') : [];
+    const initialShowStreamFilter = isSpecialFlow && initialStreams.length >= 2;
 
-    const [step, setStep] = useState(isSpecialFlow ? 1 : 2);
+    const [step, setStep] = useState(2); // Always start at Batch
     const [activeStream, setActiveStream] = useState('All');
     const [selectedBatch, setSelectedBatch] = useState(null);
     const [selectedPlan, setSelectedPlan] = useState(null);
@@ -199,7 +201,7 @@ const CourseDetailsScreen = ({ route, navigation }) => {
 
     const handleBack = () => {
         if (step === 1) navigation.goBack();
-        else if (step === 2) { if (isSpecialFlow) changeStep(1); else navigation.goBack(); }
+        else if (step === 2) { navigation.goBack(); }
         else if (step === 3) changeStep(2);
         else if (step === 4) changeStep(3);
         else if (step === 5) {
@@ -225,9 +227,9 @@ const CourseDetailsScreen = ({ route, navigation }) => {
         <View style={styles.container}>
             <StatusBar barStyle="light-content" backgroundColor="transparent" translucent={true} />
 
-            <LinearGradient colors={['#b92b27', '#1565C0']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.headerGradient}>
+            <LinearGradient colors={[COLORS.primary, '#9A0007']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.headerGradient}>
                 <View style={styles.headerTopRow}>
-                    <TouchableOpacity onPress={handleBack} style={styles.backBtn}>
+                    <TouchableOpacity activeOpacity={0.8} onPress={handleBack} style={styles.backBtn}>
                         <Icon name="arrow-left" size={24} color="white" />
                     </TouchableOpacity>
                     <View style={{ flex: 1 }}>
@@ -253,8 +255,8 @@ const CourseDetailsScreen = ({ route, navigation }) => {
                     <View style={styles.animateFade}>
                         <Text style={styles.label}>Select Your Stream</Text>
                         {availableStreams.filter(s => s !== 'All').map((stream, idx) => (
-                            <TouchableOpacity key={idx} onPress={() => { setActiveStream(stream); changeStep(2); }}>
-                                <LinearGradient colors={idx % 2 === 0 ? ['#D32F2F', '#9A0007'] : ['#1976D2', '#004BA0']} start={{x:0, y:0}} end={{x:1, y:1}} style={[styles.streamMainCard, { marginTop: idx > 0 ? 15 : 0 }]}>
+                            <TouchableOpacity activeOpacity={0.8} key={idx} onPress={() => { setActiveStream(stream); changeStep(2); }}>
+                                <LinearGradient colors={idx % 2 === 0 ? ['#D32F2F', '#9A0007'] : ['#E53935', '#B71C1C']} start={{x:0, y:0}} end={{x:1, y:1}} style={[styles.streamMainCard, { marginTop: idx > 0 ? 15 : 0 }]}>
                                     <View style={styles.cardContent}>
                                         <View>
                                             <Text style={styles.streamTitle}>{stream}</Text>
@@ -275,13 +277,15 @@ const CourseDetailsScreen = ({ route, navigation }) => {
                             batches.map(batch => {
                                 const isSelected = selectedBatch?.id === batch.id;
                                 return (
-                                    <TouchableOpacity key={batch.id} style={[styles.modernCard, isSelected && styles.modernCardActive]} onPress={() => { setSelectedBatch(batch); changeStep(3); }}>
-                                        <View style={[styles.logoContainer, isSelected && styles.logoContainerActive]}>
-                                            {batch.logo && batch.logo !== 'default.png' ? 
-                                                <Image source={{ uri: `${IMAGE_URL}icons/${batch.logo}` }} style={styles.batchLogo} resizeMode="contain" /> 
-                                                : <Icon name="school" size={26} color={isSelected ? "white" : COLORS.primary} />}
-                                        </View>
-                                        <View style={{ marginLeft: 15, flex: 1 }}>
+                                    <TouchableOpacity activeOpacity={0.8} key={batch.id} style={[styles.modernCard, isSelected && styles.modernCardActive]} onPress={() => { setSelectedBatch(batch); changeStep(3); }}>
+                                        {batch.logo && batch.logo !== 'default.png' ? (
+                                            <Image source={{ uri: `${IMAGE_URL}icons/${batch.logo}` }} style={{ width: 70, height: 70, borderRadius: 12, backgroundColor: '#fff', marginRight: 15 }} resizeMode="cover" />
+                                        ) : (
+                                            <View style={{ width: 70, height: 70, borderRadius: 12, backgroundColor: '#F1F5F9', justifyContent: 'center', alignItems: 'center', marginRight: 15 }}>
+                                                <Icon name="school" size={30} color={COLORS.primary} />
+                                            </View>
+                                        )}
+                                        <View style={{ flex: 1 }}>
                                             <Text style={styles.cardText}>{batch.name}</Text>
                                             <Text style={styles.cardSubText}>Tap to select</Text>
                                         </View>
@@ -299,7 +303,7 @@ const CourseDetailsScreen = ({ route, navigation }) => {
                     <View style={styles.animateFade}>
                         <Text style={styles.label}>Payment Plan</Text>
                         
-                        <TouchableOpacity onPress={() => {
+                        <TouchableOpacity activeOpacity={0.8} onPress={() => {
                             setSelectedPlan('full');
                             const fullGroups = safeGroups.filter(g => g.type == 2 || String(g.name).toLowerCase().includes('full'));
                             if (fullGroups.length === 0) {
@@ -321,8 +325,8 @@ const CourseDetailsScreen = ({ route, navigation }) => {
                             </LinearGradient>
                         </TouchableOpacity>
 
-                        <TouchableOpacity onPress={() => { setSelectedPlan('monthly'); changeStep(4); }}>
-                            <LinearGradient colors={['#1E3C72', '#2A5298']} start={{x:0, y:0}} end={{x:1, y:1}} style={styles.premiumCard}>
+                        <TouchableOpacity activeOpacity={0.8} onPress={() => { setSelectedPlan('monthly'); changeStep(4); }}>
+                            <LinearGradient colors={['#424242', '#212121']} start={{x:0, y:0}} end={{x:1, y:1}} style={styles.premiumCard}>
                                 <View style={styles.planIconWrapper}>
                                     <Icon name="calendar-month-outline" size={32} color="#1E3C72" />
                                 </View>
@@ -347,7 +351,7 @@ const CourseDetailsScreen = ({ route, navigation }) => {
                     <View style={styles.animateFade}>
                         <Text style={styles.label}>Select {selectedPlan === 'monthly' ? 'Month' : 'Group'}</Text>
                         {safeGroups.filter(g => selectedPlan === 'monthly' ? g.type == 1 : g.type != 1).map(group => (
-                            <TouchableOpacity key={group.id} style={styles.modernCard} onPress={() => { setSelectedMonthGroup(group); changeStep(5); }}>
+                            <TouchableOpacity activeOpacity={0.8} key={group.id} style={styles.modernCard} onPress={() => { setSelectedMonthGroup(group); changeStep(5); }}>
                                 <View style={styles.logoContainer}><Icon name="calendar-month" size={24} color={COLORS.primary} /></View>
                                 <Text style={[styles.cardText, {marginLeft: 15, flex: 1}]}>{group.name}</Text>
                                 <Icon name="chevron-right" size={24} color="#ccc" />
@@ -426,7 +430,7 @@ const CourseDetailsScreen = ({ route, navigation }) => {
                                                 {hasValidImage ? (
                                                     <Image source={{ uri: `${IMAGE_URL}icons/${courseImage}` }} style={styles.lecturerAvatar} />
                                                 ) : (
-                                                    <View style={styles.lecturerAvatarPlaceholder}><Icon name="account" size={16} color="#9CA3AF" /></View>
+                                                    <View style={styles.lecturerAvatarPlaceholder}><Icon name="account" size={24} color="#9CA3AF" /></View>
                                                 )}
                                                 <Text style={styles.subLecturerName} numberOfLines={1}>{validLecturerName ? sub.lecturerName : 'TBA'}</Text>
                                             </View>
@@ -472,7 +476,7 @@ const CourseDetailsScreen = ({ route, navigation }) => {
                         <Text style={styles.totalLabel}>TOTAL PAYABLE</Text>
                         <Text style={styles.totalText}>Rs. {totalAmount.toLocaleString()}</Text>
                     </View>
-                    <TouchableOpacity disabled={totalAmount === 0 || loading} onPress={proceedToPayment} style={{width: 140}}>
+                    <TouchableOpacity activeOpacity={0.8} disabled={totalAmount === 0 || loading} onPress={proceedToPayment} style={{width: 140}}>
                         <LinearGradient 
                             colors={totalAmount === 0 ? ['#D1D5DB', '#9CA3AF'] : [COLORS.primary, '#9A0007']} 
                             start={{x:0, y:0}} end={{x:1, y:1}} 
@@ -506,8 +510,8 @@ const CourseDetailsScreen = ({ route, navigation }) => {
                             <Icon name="chevron-right" size={24} color="#ccc" />
                         </TouchableOpacity>
 
-                        <TouchableOpacity onPress={handlePayInstallmentAmount}>
-                            <LinearGradient colors={['#1E3A8A', '#3B82F6']} start={{x:0, y:0}} end={{x:1, y:1}} style={styles.modalBtnSolid}>
+                        <TouchableOpacity activeOpacity={0.8} onPress={handlePayInstallmentAmount}>
+                            <LinearGradient colors={['#B71C1C', '#E53935']} start={{x:0, y:0}} end={{x:1, y:1}} style={styles.modalBtnSolid}>
                                 <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 15 }}>
                                     <Icon name="calendar-clock" size={24} color="white" />
                                     <Text style={{ fontWeight: '900', color: 'white', fontSize: 16, marginLeft: 10 }}>Pay in Installments</Text>
@@ -603,9 +607,9 @@ const styles = StyleSheet.create({
     subjectCardDisabled: { backgroundColor: '#F8FAFC', opacity: 0.7, elevation: 0 },
     
     subName: { fontSize: 16, fontWeight: '900', color: '#1E293B', lineHeight: 22 },
-    lecturerAvatar: { width: 24, height: 24, borderRadius: 12, marginRight: 8, backgroundColor: '#E2E8F0' },
-    lecturerAvatarPlaceholder: { width: 24, height: 24, borderRadius: 12, marginRight: 8, backgroundColor: '#F1F5F9', justifyContent: 'center', alignItems: 'center' },
-    subLecturerName: { fontSize: 12, color: '#64748B', fontWeight: '800' },
+    lecturerAvatar: { width: 40, height: 40, borderRadius: 20, marginRight: 10, backgroundColor: '#E2E8F0' },
+    lecturerAvatarPlaceholder: { width: 40, height: 40, borderRadius: 20, marginRight: 10, backgroundColor: '#F1F5F9', justifyContent: 'center', alignItems: 'center' },
+    subLecturerName: { fontSize: 13, color: '#475569', fontWeight: '800' },
     
     priceTag: { backgroundColor: '#F1F5F9', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12, alignSelf: 'flex-start', marginRight: 10 },
     priceTagActive: { backgroundColor: COLORS.primary },

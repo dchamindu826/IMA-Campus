@@ -125,8 +125,12 @@ const MyCoursesScreen = ({ navigation }) => {
     }
     return (
       <TouchableOpacity style={styles.courseCard} activeOpacity={0.8} onPress={() => navigation.navigate('CourseContent', { courseId: item.id, courseTitle: item.name, hasAccess: true })}>
-        <View style={styles.iconBox}>
-            <Icon name="book-open-variant" size={26} color={COLORS.primary} />
+        <View style={[styles.iconBox, { padding: 0, overflow: 'hidden', backgroundColor: 'transparent', borderWidth: 0 }]}>
+            <Image 
+                source={{ uri: `${IMAGE_URL}icons/${item.batchLogo && item.batchLogo !== 'default.png' ? item.batchLogo : item.businessLogo}` }} 
+                style={{ width: '100%', height: '100%', borderRadius: 15 }} 
+                resizeMode="cover" 
+            />
         </View>
         <View style={styles.cardInfo}>
             <Text style={styles.courseName} numberOfLines={2}>{item.name}</Text>
@@ -159,7 +163,7 @@ const MyCoursesScreen = ({ navigation }) => {
             <Text style={styles.headerTitle} numberOfLines={1}>{headerText}</Text>
             <Text style={styles.subHeaderText}>{subText}</Text>
         </View>
-      </View>
+      </LinearGradient>
 
       <View style={styles.content}>
         {loading && !refreshing ? <ActivityIndicator size="large" color={COLORS.primary} style={{marginTop: 50}} /> : (

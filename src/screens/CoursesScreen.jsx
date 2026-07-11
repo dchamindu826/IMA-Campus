@@ -2,6 +2,7 @@ import React, { useState, useEffect, useLayoutEffect } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, Image, ActivityIndicator, TextInput, StatusBar, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import LinearGradient from 'react-native-linear-gradient';
 import COLORS from '../constants/colors';
 import api, { IMAGE_URL } from '../services/api';
 
@@ -62,7 +63,8 @@ const CoursesScreen = ({ navigation }) => {
       <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} translucent={true}/>
       
       {/* 🔥 Premium Red Header 🔥 */}
-      <View style={styles.redHeader}>
+      <LinearGradient colors={[COLORS.primary, '#9A0007']} start={{x: 0, y: 0}} end={{x: 1, y: 1}} style={styles.redHeader}>
+        <Icon name="school" size={150} color="rgba(255,255,255,0.06)" style={{position: 'absolute', right: -30, top: -20, transform: [{rotate: '-15deg'}]}} />
         <Text style={styles.headerTitle}>Available Courses</Text>
         <View style={styles.searchContainer}>
             <Icon name="magnify" size={22} color="#999" style={styles.searchIcon} />
@@ -77,7 +79,7 @@ const CoursesScreen = ({ navigation }) => {
                 <TouchableOpacity onPress={() => handleSearch('')}><Icon name="close-circle" size={20} color="#999" /></TouchableOpacity>
             )}
         </View>
-      </View>
+      </LinearGradient>
 
       <View style={styles.mainBackground}>
         {loading ? <ActivityIndicator size="large" color={COLORS.primary} style={{ marginTop: 50 }} /> : (
@@ -104,7 +106,6 @@ const styles = StyleSheet.create({
   mainBackground: { flex: 1, backgroundColor: '#F5F7FA' },
   
   redHeader: { 
-    backgroundColor: COLORS.primary, 
     paddingHorizontal: 20, 
     paddingBottom: 25, 
     paddingTop: STATUSBAR_HEIGHT + 10, 
@@ -112,7 +113,8 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: 35, 
     elevation: 8, 
     shadowColor: COLORS.primary, shadowOffset: {width: 0, height: 4}, shadowOpacity: 0.3, shadowRadius: 10,
-    zIndex: 10 
+    zIndex: 10,
+    overflow: 'hidden'
   },
   headerTitle: { fontSize: 24, fontWeight: '900', color: 'white', marginBottom: 15, letterSpacing: 0.5 },
   searchContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'white', borderRadius: 15, paddingHorizontal: 15, height: 48, elevation: 2 },
@@ -132,7 +134,7 @@ const styles = StyleSheet.create({
     shadowColor: '#000', shadowOffset: {width: 0, height: 2}, shadowOpacity: 0.05, shadowRadius: 5 
   }, 
   cardImageContainer: { height: 100, backgroundColor: '#F8FAFC', justifyContent: 'center', alignItems: 'center', padding: 10 }, 
-  image: { width: '85%', height: '85%' }, 
+  image: { width: '100%', height: '100%' }, 
   cardContent: { padding: 12, paddingTop: 15 }, 
   badge: { backgroundColor: '#E0F2FE', alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, marginBottom: 8 }, 
   badgeText: { color: '#0369A1', fontSize: 9, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.5 }, 

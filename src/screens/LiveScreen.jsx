@@ -219,6 +219,42 @@ const LiveScreen = () => {
 
   useFocusEffect(useCallback(() => { fetchLives(); }, []));
 
+
+  const scheduleNotifications = async (classes) => {
+    try {
+        await notifee.requestPermission();
+        await notifee.createChannel({ id: 'live_reminders', name: 'Live Class Reminders', importance: AndroidImportance.HIGH, sound: 'default' });
+
+        const scheduledIds = await notifee.getTriggerNotificationIds();
+        const now = Date.now();
+
+        for (const item of classes) {
+            let timeStr = item.startTime;
+            if (timeStr && timeStr.split(':').length === 2) {
+                timeStr += ':00';
+            }
+            
+            const classDateTime = new Date(`${item.date}T${timeStr}`);
+            const notifyTime = classDateTime.getTime() - (15 * 60 * 1000); // 15 mins before
+
+            if (notifyTime > now) {
+                const notifId = `live_${item.id}`;
+                if (!scheduledIds.includes(notifId)) {
+                    await notifee.createTriggerNotification(
+                        {
+                            id: notifId,
+                            title: 'Live Class Starting Soon! 🔴',
+                            body: `${item.title || item.name || 'Your class'} will start in 15 minutes. Get ready!`,
+                            android: { channelId: 'live_reminders', pressAction: { id: 'default' } }
+                        },
+                        { type: TriggerType.TIMESTAMP, timestamp: notifyTime }
+                    );
+                }
+            }
+        }
+    } catch (error) { console.error("Notification Error:", error); }
+  };
+
   const fetchLives = async () => {
     try {
       setLoading(true);
@@ -226,7 +262,7 @@ const LiveScreen = () => {
       const fetchedLives = res.data.liveClasses || [];
       setLives(fetchedLives);
       if (fetchedLives.length > 0) {
-          // scheduleNotifications removed as backend handles it now
+          scheduleNotifications(fetchedLives);
       }
     } catch (error) {
       console.log("Fetch Lives Error:", error);
@@ -250,10 +286,10 @@ const LiveScreen = () => {
     <View style={styles.container}>
       <StatusBar backgroundColor="transparent" barStyle="light-content" translucent={true} />
       
-      <View style={[styles.topHeader, { paddingTop: insets.top + 20 }]}>
+      <LinearGradient colors={['#9A0007', '#E53935']} start={{x: 0, y: 0}} end={{x: 1, y: 1}} style={[styles.topHeader, { paddingTop: insets.top + 20, borderBottomLeftRadius: 35, borderBottomRightRadius: 35 }]}>
          <Text style={styles.headerTitle}>Upcoming Lives</Text>
          <Text style={styles.subHeader}>Your schedule for this week</Text>
-      </View>
+      </LinearGradient>
       
       <FlatList
         data={lives}

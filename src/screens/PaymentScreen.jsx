@@ -195,7 +195,7 @@ const PaymentsScreen = ({ navigation }) => {
       <StatusBar backgroundColor={COLORS.primary} barStyle="light-content" translucent={true} />
 
       {/* 🔥 අලුත් ලස්සන Header එක */}
-      <View style={styles.header}>
+      <LinearGradient colors={['#9A0007', '#E53935']} start={{x: 0, y: 0}} end={{x: 1, y: 1}} style={[styles.header, { borderBottomLeftRadius: 35, borderBottomRightRadius: 35, elevation: 8 }]}>
         <View style={styles.topBar}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
             <Icon name="arrow-left" size={24} color="white" />
@@ -208,7 +208,7 @@ const PaymentsScreen = ({ navigation }) => {
             <Icon name="wallet" size={24} color="white" />
           </View>
         </View>
-      </View>
+      </LinearGradient>
 
       {/* 🔥 Floating Tabs */}
       <View style={styles.tabContainerWrapper}>

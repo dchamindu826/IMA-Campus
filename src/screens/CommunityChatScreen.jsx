@@ -46,7 +46,7 @@ const CommunityChatScreen = ({ route, navigation }) => {
     const checkProfile = async () => {
         try {
             const res = await api.get('mobile/chat/profile');
-            if (res.data.profile.appChatUsername) {
+            if (res.data?.profile?.appChatUsername) {
                 setChatProfile({ username: res.data.profile.appChatUsername, dp: res.data.profile.appChatDp });
                 initChat();
             } else {
@@ -54,6 +54,7 @@ const CommunityChatScreen = ({ route, navigation }) => {
             }
         } catch (e) {
             console.log(e);
+            setShowProfileSetup(true);
         }
     };
 

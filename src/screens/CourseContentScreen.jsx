@@ -406,7 +406,7 @@ const CourseContentScreen = ({ route, navigation }) => {
         <Icon name="school" size={150} color="rgba(255,255,255,0.06)" style={{position: 'absolute', right: -30, top: -20, transform: [{rotate: '-15deg'}]}} />
                     <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}><Icon name="arrow-left" size={24} color="white" /></TouchableOpacity>
                     <Text style={styles.headerTitle} numberOfLines={1}>{courseTitle}</Text>
-                </View>
+                </LinearGradient>
                 <View style={styles.messageContainer}>
                     <View style={[styles.emptyIconBox, { width: 120, height: 120, borderRadius: 60 }]}>
                         <Icon name={status === -1 ? "clock-time-four-outline" : "lock-alert"} size={60} color={status === -1 ? "#F59E0B" : COLORS.primary} />
@@ -428,7 +428,7 @@ const CourseContentScreen = ({ route, navigation }) => {
         <Icon name="school" size={150} color="rgba(255,255,255,0.06)" style={{position: 'absolute', right: -30, top: -20, transform: [{rotate: '-15deg'}]}} />
                 <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}><Icon name="arrow-left" size={24} color="white" /></TouchableOpacity>
                 <Text style={styles.headerTitle} numberOfLines={1}>{courseTitle}</Text>
-            </View>
+            </LinearGradient>
 
             <View style={styles.customTabBarContainer}>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.customTabBar}>
