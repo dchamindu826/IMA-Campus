@@ -39,27 +39,20 @@ const MyCoursesScreen = ({ navigation }) => {
       else { navigation.goBack(); }
   };
 
-  const businesses = useMemo(() => {
-      const map = new Map();
-      mySubjects.forEach(s => {
-          if (!map.has(s.businessName)) map.set(s.businessName, { name: s.businessName, logo: s.businessLogo });
-      });
-      return Array.from(map.values());
-  }, [mySubjects]);
+  
 
   const batches = useMemo(() => {
-      if (!selectedBusiness) return [];
-      const filtered = mySubjects.filter(s => s.businessName === selectedBusiness.name);
       const map = new Map();
-      filtered.forEach(s => {
-          if (!map.has(s.batchName)) {
+      mySubjects.forEach(s => {
+          const key = s.batchName + '-' + s.businessName;
+          if (!map.has(key)) {
               let bLogo = s.batchLogo;
               if (!bLogo || bLogo === 'default.png') bLogo = s.businessLogo;
-              map.set(s.batchName, { name: s.batchName, logo: bLogo });
+              map.set(key, { name: s.batchName, businessName: s.businessName, logo: bLogo });
           }
       });
       return Array.from(map.values());
-  }, [mySubjects, selectedBusiness]);
+  }, [mySubjects]);
 
   const subjectsWithHeaders = useMemo(() => {
       if (!selectedBusiness || !selectedBatch) return [];
@@ -89,20 +82,7 @@ const MyCoursesScreen = ({ navigation }) => {
 
 
   const renderBusinessCard = ({ item }) => (
-      <TouchableOpacity style={styles.card} activeOpacity={0.8} onPress={() => { setSelectedBusiness(item); setStep(2); }}>
-          <View style={styles.logoContainer}>
-             <Image source={{ uri: `${IMAGE_URL}icons/${item.logo || 'default.png'}` }} style={styles.logo} resizeMode="contain" />
-          </View>
-          <View style={styles.cardInfo}>
-              <Text style={styles.cardTitle} numberOfLines={2}>{item.name}</Text>
-              <Text style={styles.cardSubText}>Tap to view batches</Text>
-          </View>
-          <Icon name="chevron-right" size={24} color="#CCC" />
-      </TouchableOpacity>
-  );
-
-  const renderBatchCard = ({ item }) => (
-      <TouchableOpacity style={styles.card} activeOpacity={0.8} onPress={() => { setSelectedBatch(item); setStep(3); }}>
+      <TouchableOpacity style={styles.card} activeOpacity={0.8} onPress={() => { setSelectedBatch(item); setStep(2); }}>
           <View style={styles.logoContainer}>
               <Image source={{ uri: `${IMAGE_URL}icons/${item.logo || 'default.png'}` }} style={styles.logo} resizeMode="contain" />
           </View>
@@ -197,7 +177,7 @@ const styles = StyleSheet.create({
   content: { flex: 1 },
   listContainer: { padding: 20, paddingBottom: 100 },
   card: { flexDirection: 'row', backgroundColor: 'white', padding: 16, borderRadius: 20, marginBottom: 15, alignItems: 'center', elevation: 2, borderWidth: 1, borderColor: '#F3F4F6' },
-  logoContainer: { width: 60, height: 60, borderRadius: 15, backgroundColor: '#F8FAFC', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#F0F0F0', overflow: 'hidden' }, 
+  logoContainer: { width: 75, height: 75, borderRadius: 15, backgroundColor: '#F8FAFC', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#F0F0F0', overflow: 'hidden' }, 
   logo: { width: 45, height: 45 },
   cardInfo: { flex: 1, marginLeft: 15 },
   cardTitle: { fontSize: 16, fontWeight: '900', color: '#1A1A1A', marginBottom: 4 },

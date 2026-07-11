@@ -207,10 +207,10 @@ const HomeScreen = ({ navigation }) => {
   };
 
   const quickActions = [
-    { id: 1, name: 'Courses', icon: 'book-education', color: '#E3F2FD', iconColor: '#2196F3', targetTab: 'Courses' },
-    { id: 2, name: 'Downloads', icon: 'download-circle-outline', color: '#E8F5E9', iconColor: '#4CAF50', targetTab: 'Downloads' }, 
-    { id: 3, name: 'Pay', icon: 'calendar-clock', color: '#FFF3E0', iconColor: '#FF9800', targetTab: 'Payments' },
-    { id: 4, name: 'Chat', icon: 'chat-processing-outline', color: '#F3E5F5', iconColor: '#9C27B0', action: 'chat' },
+    { id: 1, name: 'My Courses', icon: 'book-education', color: '#FEF2F2', iconColor: COLORS.primary, targetTab: 'Courses', desc: 'View learning materials' },
+    { id: 2, name: 'Downloads', icon: 'download-circle-outline', color: '#FEF2F2', iconColor: COLORS.primary, targetTab: 'Downloads', desc: 'Offline content' }, 
+    { id: 3, name: 'Payments', icon: 'credit-card-outline', color: '#FEF2F2', iconColor: COLORS.primary, targetTab: 'Payments', desc: 'Manage your fees' },
+    { id: 4, name: 'Community', icon: 'chat-processing-outline', color: '#FEF2F2', iconColor: COLORS.primary, action: 'chat', desc: 'Chat with peers' },
   ];
 
   const renderTextWithLinks = (text) => {
@@ -340,7 +340,7 @@ const HomeScreen = ({ navigation }) => {
           {quickActions.map((item) => (
             <TouchableOpacity 
                 key={item.id.toString()} 
-                style={styles.actionCard} 
+                style={styles.actionBanner} 
                 onPress={() => {
                   if (item.action === 'chat') {
                       setShowChatSelection(true);
@@ -354,9 +354,12 @@ const HomeScreen = ({ navigation }) => {
                 }}
             >
               <View style={[styles.iconBox, { backgroundColor: item.color }]}>
-                <Icon name={item.icon} size={24} color={item.iconColor} />
+                <Icon name={item.icon} size={28} color={item.iconColor} />
               </View>
-              <Text style={styles.actionText}>{item.name}</Text>
+              <View style={styles.actionTextContainer}>
+                  <Text style={styles.actionText}>{item.name}</Text>
+                  <Text style={styles.actionDesc}>{item.desc}</Text>
+              </View>
             </TouchableOpacity>
           ))}
         </View>
@@ -578,10 +581,12 @@ const styles = StyleSheet.create({
 
   contentContainer: { flex: 1, paddingHorizontal: 0, marginTop: 25 }, 
   sectionTitle: { fontSize: 19, fontWeight: '800', color: '#1A1A1A', marginBottom: 15, paddingHorizontal: 20 },
-  gridContainer: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 25, paddingHorizontal: 20 },
-  actionCard: { width: '23%', backgroundColor: 'white', borderRadius: 15, paddingVertical: 12, alignItems: 'center', elevation: 4 },
-  iconBox: { width: 45, height: 45, borderRadius: 12, justifyContent: 'center', alignItems: 'center', marginBottom: 8 },
-  actionText: { fontSize: 11, fontWeight: '700', color: '#444' },
+  gridContainer: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', marginBottom: 25, paddingHorizontal: 20 },
+  actionBanner: { width: '48%', backgroundColor: 'white', borderRadius: 16, padding: 12, flexDirection: 'row', alignItems: 'center', marginBottom: 12, elevation: 3, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, borderWidth: 1, borderColor: '#FEE2E2' },
+  iconBox: { width: 45, height: 45, borderRadius: 12, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+  actionTextContainer: { flex: 1 },
+  actionText: { fontSize: 13, fontWeight: '800', color: '#1A1A1A', marginBottom: 2 },
+  actionDesc: { fontSize: 10, color: '#6B7280' },
   carouselCard: { width: CARD_WIDTH, marginRight: CARD_MARGIN, backgroundColor: 'white', borderRadius: 20, padding: 15, flexDirection: 'row', alignItems: 'center', marginBottom: 0, elevation: 4, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 3.84 },
   carouselIcon: { width: 55, height: 55, borderRadius: 12, backgroundColor: '#FF9100', justifyContent: 'center', alignItems: 'center', marginRight: 15 },
   carouselImage: { width: 60, height: 60, borderRadius: 12, marginRight: 15, backgroundColor: '#eee' },

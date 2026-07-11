@@ -87,7 +87,7 @@ const CommunityChatScreen = ({ route, navigation }) => {
 
             // Connect Socket
             // Determine backend URL from api defaults
-            const backendUrl = api.defaults.baseURL.replace('/api', '');
+            const backendUrl = api.defaults.baseURL.split('/api')[0];
 
             socketRef.current = io(backendUrl, {
                 auth: { token: userToken }
@@ -158,6 +158,7 @@ const CommunityChatScreen = ({ route, navigation }) => {
 
         return (
             <TouchableOpacity
+                activeOpacity={1}
                 onLongPress={() => deleteMessage(item.id)}
                 delayLongPress={500}
                 style={[styles.messageWrapper, isMine ? styles.messageMine : styles.messageOther]}
