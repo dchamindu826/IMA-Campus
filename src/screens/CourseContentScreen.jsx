@@ -1,614 +1,643 @@
-import React, { useState, useCallback, useRef, useEffect, useContext } from 'react';
-import { 
-  View, Text, StyleSheet, TouchableOpacity, ScrollView, 
-  ActivityIndicator, Modal, Dimensions, Alert, Linking 
+import React, { useState, useCallback, useEffect, useContext, useRef } from 'react';
+import {
+    View, Text, StyleSheet, TouchableOpacity, ScrollView,
+    ActivityIndicator, Modal, Alert, Linking, StatusBar, Platform, useWindowDimensions, Image
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context'; 
-import { useFocusEffect } from '@react-navigation/native'; 
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import { WebView } from 'react-native-webview';
-import ReactNativeBlobUtil from 'react-native-blob-util'; 
+import ReactNativeBlobUtil from 'react-native-blob-util';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import RNFS from 'react-native-fs';
-import api, { IMAGE_URL } from '../services/api';
+
+import api from '../services/api';
 import COLORS from '../constants/colors';
+import GlobalDownloadWidget from '../components/GlobalDownloadWidget';
+import downloadManager from '../services/downloadManager';
+import { DeviceEventEmitter } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import CustomAlert from '../components/CustomAlert';
 import { AuthContext } from '../context/AuthContext';
 
-const { width } = Dimensions.get('window');
-
 const KNOWN_TABS = [
-    { key: 'liveClasses', title: 'Live Classes', type: 'live' },
-    { key: 'recordings', title: 'Recordings', type: 'recording' },
-    { key: 'documents', title: 'Documents', type: 'document' },
-    { key: 'papers', title: 'MCQ Papers', type: 'document' },
-    { key: 'sPapers', title: 'Structured Papers', type: 'document' }
+    { key: 'recordings', title: 'Recordings', type: 'recording', icon: 'video-outline' },
+    { key: 'liveClasses', title: 'Live Classes', type: 'live', icon: 'broadcast' },
+    { key: 'documents', title: 'Documents', type: 'document', icon: 'file-document-outline' },
+    { key: 'papers', title: 'MCQ Papers', type: 'paper', icon: 'format-list-checks' },
+    { key: 'sPapers', title: 'Structured Papers', type: 'sPaper', icon: 'text-box-outline' }
 ];
 
-const getFilePath = (itemId) => {
-    return `${RNFS.DocumentDirectoryPath}/f_${itemId}.mp4`;
-};
+// 🔥 SECURE INTERNAL PATH DEFINITION 🔥
+const secureStoragePath = Platform.OS === 'ios' ? RNFS.LibraryDirectoryPath : RNFS.DocumentDirectoryPath;
 
-const CancelConfirmModal = ({ visible, onConfirm, onCancel }) => {
-    return (
-        <Modal transparent={true} visible={visible} animationType="fade" onRequestClose={onCancel}>
-            <View style={styles.modalOverlay}>
-                <View style={styles.confirmModalContainer}>
-                    <View style={styles.confirmIconContainer}>
-                        <Icon name="close-circle-outline" size={50} color="#FF5252" />
+const SectionedContentList = ({ tabKey, type, data, contentGroups, onPlay, onShowAlert, courseTitle }) => {
+    const [openFolders, setOpenFolders] = useState({});
+    const [downloadingItems, setDownloadingItems] = useState({});
+
+    useEffect(() => {
+        // Load active downloads
+        const initialDownloads = downloadManager.getActiveDownloads();
+        const initialItems = {};
+        Object.keys(initialDownloads).forEach(id => {
+            initialItems[id] = initialDownloads[id].progress;
+        });
+        setDownloadingItems(initialItems);
+
+        const onProgress = (data) => {
+            setDownloadingItems(prev => ({ ...prev, [data.itemId]: data.progress }));
+        };
+
+        const onComplete = (data) => {
+            setDownloadingItems(prev => {
+                const newState = { ...prev };
+                delete newState[data.itemId];
+                return newState;
+            });
+            onShowAlert({ title: "Download Complete", msg: "Video has been saved successfully.", type: "success" });
+        };
+
+        const onError = (data) => {
+            setDownloadingItems(prev => {
+                const newState = { ...prev };
+                delete newState[data.itemId];
+                return newState;
+            });
+            onShowAlert({ title: "Download Error", msg: data.errorMsg || "Failed to download the video.", type: "error" });
+        };
+
+        const onExists = (data) => {
+            onShowAlert({ title: "Already Downloaded", msg: "You can find this video in My Downloads section or Play Offline.", type: "warning" });
+        };
+
+        const progressSub = DeviceEventEmitter.addListener('DOWNLOAD_PROGRESS', onProgress);
+        const completeSub = DeviceEventEmitter.addListener('DOWNLOAD_COMPLETE', onComplete);
+        const errorSub = DeviceEventEmitter.addListener('DOWNLOAD_ERROR', onError);
+        const existsSub = DeviceEventEmitter.addListener('DOWNLOAD_ALREADY_EXISTS', onExists);
+
+        return () => {
+            progressSub.remove();
+            completeSub.remove();
+            errorSub.remove();
+            existsSub.remove();
+        };
+    }, []);
+
+    // 🔥 NEW: Download වෙලා තියෙන ඒවගේ IDs තියාගන්න අලුත් State එක 🔥
+    const [downloadedItems, setDownloadedItems] = useState(new Set());
+
+    // 🔥 NEW: Component එක Load වෙද්දි කලින් Download කරපුවා තියෙනවද බලනවා 🔥
+    useEffect(() => {
+        const checkDownloadedItems = async () => {
+            try {
+                const res = await AsyncStorage.getItem('my_downloads');
+                if (res) {
+                    const parsed = JSON.parse(res);
+                    setDownloadedItems(new Set(parsed.map(i => i.id)));
+                }
+            } catch (e) { console.log("Error checking downloads:", e); }
+        };
+        checkDownloadedItems();
+    }, []);
+
+    useEffect(() => {
+        if (contentGroups) {
+            const initial = {};
+            contentGroups.forEach(g => initial[g.id] = true);
+            setOpenFolders(initial);
+        }
+    }, [contentGroups]);
+
+    const toggleFolder = (folderId) => setOpenFolders(prev => ({ ...prev, [folderId]: !prev[folderId] }));
+
+    if (!data || data.length === 0) {
+        return (
+            <View style={styles.emptyContainer}>
+                <View style={styles.emptyIconBox}><Icon name="folder-open-outline" size={50} color="#D1D5DB" /></View>
+                <Text style={styles.emptyTitle}>No Content Yet</Text>
+                <Text style={styles.emptyText}>Materials for this section will appear here once uploaded by the lecturer.</Text>
+            </View>
+        );
+    }
+
+    const isDocumentType = ['document', 'paper', 'sPaper'].includes(type);
+
+    const getTypeInt = (typeStr) => {
+        switch (typeStr) {
+            case 'live': return 1;
+            case 'recording': return 2;
+            case 'document': return 3;
+            case 'sPaper': return 4;
+            case 'paper': return 5;
+            default: return 1;
+        }
+    };
+    const targetTypeInt = getTypeInt(type);
+
+    const folders = (contentGroups || [])
+        .filter(f => parseInt(f.type) === targetTypeInt)
+        .sort((a, b) => parseInt(a.itemOrder || 1) - parseInt(b.itemOrder || 1));
+
+    const groupedItems = folders.map(folder => ({
+        folder,
+        items: data
+            .filter(item => String(item.contentGroupId || item.content_group_id || item.folder_id) === String(folder.id))
+            .sort((a, b) => parseInt(a.itemOrder || 1) - parseInt(b.itemOrder || 1))
+    }));
+
+    const uncategorizedItems = data
+        .filter(item => !folders.find(f => String(f.id) === String(item.contentGroupId || item.content_group_id || item.folder_id)))
+        .sort((a, b) => parseInt(a.itemOrder || 1) - parseInt(b.itemOrder || 1));
+
+    const handleDocDownload = (item) => {
+        const docUrl = item.link || item.url || item.file || item.fileName;
+        if (!docUrl) return onShowAlert({ title: "Error", msg: "No document available to download.", type: "error" });
+
+        let link = docUrl.startsWith('http') ? docUrl : `https://imacampus.online/storage/documents/${docUrl}`;
+
+        if (Platform.OS === 'android') {
+            onShowAlert({ title: "Downloading Started", msg: "Please check your notification panel to see the progress.", type: "success" });
+            let ext = "pdf";
+            if (docUrl.includes('.jpg') || docUrl.includes('.jpeg')) ext = "jpg";
+            if (docUrl.includes('.png')) ext = "png";
+            const fileName = item.title ? `${item.title.replace(/[^a-zA-Z0-9]/g, '_')}.${ext}` : `Document_${Date.now()}.${ext}`;
+
+            ReactNativeBlobUtil.config({
+                addAndroidDownloads: {
+                    useDownloadManager: true, notification: true, title: fileName,
+                    description: 'Downloading document', mime: `application/${ext}`, mediaScannable: true,
+                    path: `${ReactNativeBlobUtil.fs.dirs.DownloadDir}/${fileName}`,
+                }
+            }).fetch('GET', link).catch(() => onShowAlert({ title: "Error", msg: "Download failed.", type: "error" }));
+        } else {
+            Linking.openURL(link);
+        }
+    };
+
+    const handleVideoDownload = async (item) => {
+        downloadManager.startDownload(item, courseTitle);
+    };
+
+    const renderItemCard = (item) => {
+        let imgUri = null;
+
+        if (item.thumbnail && item.thumbnail !== 'default.png' && item.thumbnail !== 'null') {
+            imgUri = item.thumbnail.startsWith('http')
+                ? item.thumbnail
+                : `https://imacampus.online/api/storage/documents/${item.thumbnail}`;
+        } else if (item.fileName && /\.(jpg|jpeg|png|webp|gif)$/i.test(item.fileName)) {
+            imgUri = `https://imacampus.online/api/storage/documents/${item.fileName}`;
+        }
+
+        const downloadProgress = downloadingItems[item.id];
+        const isDownloading = downloadProgress !== undefined;
+        // 🔥 NEW: මේ වීඩියෝ එක දැනටමත් Download වෙලාද කියලා බලනවා 🔥
+        const isDownloaded = downloadedItems.has(item.id);
+
+        const canDownloadVideo = !isDocumentType && item.link && item.meetingId;
+
+        return (
+            <View key={item.id} style={styles.itemCard}>
+
+                {imgUri ? (
+                    <Image source={{ uri: imgUri }} style={styles.landscapeImage} resizeMode="cover" />
+                ) : (
+                    <View style={[styles.landscapeImage, { backgroundColor: '#F3F4F6', justifyContent: 'center', alignItems: 'center' }]}>
+                        <Image source={{ uri: 'https://imacampus.online/logo.png' }} style={{ width: 100, height: 100, opacity: 0.15 }} resizeMode="contain" />
                     </View>
-                    <Text style={styles.confirmTitle}>Cancel Download?</Text>
-                    <Text style={styles.confirmMessage}>This will stop the download and remove partial files.</Text>
-                    
-                    <View style={styles.confirmBtnRow}>
-                        <TouchableOpacity onPress={onCancel} style={styles.confirmBtnNo}>
-                            <Text style={styles.confirmBtnNoText}>Keep </Text>
+                )}
+
+                <View style={styles.itemInfo}>
+                    <Text style={styles.itemTitle} numberOfLines={2}>{item.title}</Text>
+                    {item.date && <Text style={styles.itemDate}>{item.date.split('T')[0]}</Text>}
+
+                    <View style={styles.actionRow}>
+                        <TouchableOpacity
+                            onPress={() => {
+                                if (isDocumentType) {
+                                    const docUrl = item.link || item.url || item.file || item.fileName;
+                                    if (docUrl) {
+                                        let link = docUrl.startsWith('http') ? docUrl : `https://imacampus.online/api/storage/documents/${docUrl}`;
+                                        Linking.openURL(link).catch(err => onShowAlert({ title: "Error", msg: "Could not open document.", type: "error" }));
+                                    }
+                                } else onPlay(item);
+                            }}
+                            style={[styles.watchBtn, { flex: 1 }]}
+                        >
+                            <Text style={styles.watchBtnText}>{isDocumentType ? 'View Document' : 'Play Recoding'}</Text>
                         </TouchableOpacity>
-                        <TouchableOpacity onPress={onConfirm} style={styles.confirmBtnYes}>
-                            <Text style={styles.confirmBtnYesText}>Yes, Cancel</Text>
-                        </TouchableOpacity>
+
+                        {isDocumentType && (
+                            <TouchableOpacity onPress={() => handleDocDownload(item)} style={styles.docDownloadBtn}>
+                                <Icon name="download" size={16} color={COLORS.primary} />
+                                <Text style={styles.docDownloadText}>Save</Text>
+                            </TouchableOpacity>
+                        )}
+
+                        {/* 🔥 NEW: බට්න් එකේ පාට සහ අකුරු වෙනස් වෙන කෑල්ල 🔥 */}
+                        {canDownloadVideo && (
+                            <TouchableOpacity
+                                onPress={() => isDownloaded ? onShowAlert({ title: "Already Downloaded", msg: "You can find this video in My Downloads section.", type: "warning" }) : handleVideoDownload(item)}
+                                style={[
+                                    styles.docDownloadBtn,
+                                    isDownloaded ? { backgroundColor: '#ECFDF5', borderColor: '#A7F3D0' } : {} // ඩවුන්ලෝඩ් වෙලා නම් කොළ පාට වෙනවා
+                                ]}
+                                disabled={isDownloading}
+                            >
+                                {isDownloading ? (
+                                    <>
+                                        <ActivityIndicator size="small" color={COLORS.primary} style={{ marginRight: 4 }} />
+                                        <Text style={styles.docDownloadText}>
+                                            {downloadProgress === '...'
+                                                ? 'Extracting...'
+                                                : downloadProgress === true
+                                                    ? 'Starting...'
+                                                    : `${downloadProgress}%`}
+                                        </Text>
+                                    </>
+                                ) : isDownloaded ? (
+                                    <>
+                                        <Icon name="check-circle" size={16} color="#059669" />
+                                        <Text style={[styles.docDownloadText, { color: '#059669' }]}>Downloaded</Text>
+                                    </>
+                                ) : (
+                                    <>
+                                        <Icon name="download" size={16} color={COLORS.primary} />
+                                        <Text style={styles.docDownloadText}>Download</Text>
+                                    </>
+                                )}
+                            </TouchableOpacity>
+                        )}
+
                     </View>
                 </View>
             </View>
-        </Modal>
-    );
-};
-
-// --- COMPONENT: Self-Managed Download Button ---
-const DownloadButton = ({ item, onDownloadComplete }) => {
-    const [progress, setProgress] = useState(null); 
-    const [showCancelModal, setShowCancelModal] = useState(false);
-    const taskRef = useRef(null); 
-    const { userToken } = useContext(AuthContext);
-
-    useEffect(() => {
-        validateAndSyncState();
-    }, []);
-
-    const validateAndSyncState = async () => {
-        try {
-            const activeJSON = await AsyncStorage.getItem('active_downloads');
-            if (activeJSON) {
-                let active = JSON.parse(activeJSON);
-                if (active[item.id]) {
-                    const path = getFilePath(item.id);
-                    const exists = await RNFS.exists(path);
-                    if (exists) {
-                        setProgress(active[item.id].percent || "0%");
-                        startPolling(item.id, active[item.id].total);
-                    } else {
-                        delete active[item.id];
-                        await AsyncStorage.setItem('active_downloads', JSON.stringify(active));
-                        setProgress(null);
-                    }
-                }
-            }
-        } catch (e) { console.log(e); }
-    };
-
-    const startPolling = (itemId, totalSize) => {
-        const interval = setInterval(async () => {
-            const path = getFilePath(itemId);
-            try {
-                const exists = await RNFS.exists(path);
-                if (exists) {
-                    const stats = await RNFS.stat(path);
-                    const currentBytes = parseInt(stats.size);
-                    const totalBytes = parseInt(totalSize);
-                    
-                    if (totalBytes > 0) {
-                        let pVal = Math.min(Math.round((currentBytes / totalBytes) * 100), 100);
-                        const progressStr = pVal === 100 ? "Saving..." : `${pVal}%`;
-                        setProgress(progressStr);
-                        
-                        const activeJSON = await AsyncStorage.getItem('active_downloads');
-                        if (activeJSON) {
-                            let active = JSON.parse(activeJSON);
-                            if (active[itemId]) {
-                                active[itemId].percent = progressStr;
-                                await AsyncStorage.setItem('active_downloads', JSON.stringify(active));
-                            }
-                        }
-                    }
-                }
-            } catch (e) { }
-        }, 1000); 
-        return interval;
-    };
-
-    const handleCancel = async () => {
-        setShowCancelModal(false);
-        setProgress(null); 
-
-        if (taskRef.current) {
-            try { taskRef.current.cancel((err) => {}); } catch (e) {}
-        }
-
-        const path = getFilePath(item.id);
-        if (await RNFS.exists(path)) await RNFS.unlink(path);
-
-        const activeJSON = await AsyncStorage.getItem('active_downloads');
-        let active = activeJSON ? JSON.parse(activeJSON) : {};
-        delete active[item.id];
-        await AsyncStorage.setItem('active_downloads', JSON.stringify(active));
-    };
-
-    const handlePress = async () => {
-        if (!item.zoomMeetingId || item.zoomMeetingId === '') {
-            Alert.alert("Notice", "No available offline access for this recording.");
-            return;
-        }
-
-        if (progress !== null) {
-            setShowCancelModal(true);
-            return;
-        }
-
-        const storageRes = await AsyncStorage.getItem('my_downloads');
-        let downloads = storageRes ? JSON.parse(storageRes) : [];
-        if (downloads.find(d => d.id === item.id)) {
-            return Alert.alert("Saved", "Already downloaded. Check 'Downloads' tab.");
-        }
-
-        try {
-            const cleanZoomId = String(item.zoomMeetingId).replace(/\s+/g, '');
-            const encodedId = encodeURIComponent(cleanZoomId);
-            
-            const res = await api.get(`/getDownloadRecording/${encodedId}`, {
-                headers: { Authorization: `Bearer ${userToken}` }
-            });
-            
-            const { download_url, file_size } = res.data;
-
-            if (!download_url) {
-                Alert.alert("Error", "Download link not found in the response.");
-                return;
-            }
-
-            startInAppDownload(download_url, file_size, item);
-
-        } catch (e) {
-            // 🔥 DEBUG FIX: හරියටම API එකට යන URL එක පෙන්වනවා පිටින් Test කරගන්න!
-            const cleanZoomId = String(item.zoomMeetingId).replace(/\s+/g, '');
-            const testApiUrl = `${api.defaults.baseURL}/getDownloadRecording/${cleanZoomId}`;
-            
-            const status = e.response ? e.response.status : 'Network Error';
-            const serverMsg = e.response?.data?.message || JSON.stringify(e.response?.data) || e.message;
-            
-            Alert.alert(
-                `Download Error (${status})`, 
-                `Zoom ID: ${item.zoomMeetingId}\n\nServer Msg: ${serverMsg}\n\nTest this API in browser to verify:\n${testApiUrl}\n\nIf it says 404, it means Zoom has deleted this recording.`,
-                [{ text: "OK" }]
-            );
-            setProgress(null);
-        }
-    };
-
-    const startInAppDownload = async (download_url, file_size, itemData) => {
-        setProgress("0%"); 
-        const initialStatus = { percent: '0%', total: file_size };
-        const currentActive = await AsyncStorage.getItem('active_downloads');
-        const activeParsed = currentActive ? JSON.parse(currentActive) : {};
-        await AsyncStorage.setItem('active_downloads', JSON.stringify({ ...activeParsed, [itemData.id]: initialStatus }));
-
-        const localPath = getFilePath(itemData.id);
-        if (await RNFS.exists(localPath)) await RNFS.unlink(localPath);
-
-        const intervalId = startPolling(itemData.id, file_size);
-
-        const task = ReactNativeBlobUtil.config({
-            path: localPath,
-            fileCache: true
-        }).fetch('GET', download_url);
-
-        taskRef.current = task; 
-
-        task.then(async (resFile) => {
-            clearInterval(intervalId);
-            setProgress(null); 
-            taskRef.current = null;
-
-            try {
-                const dlRes = await AsyncStorage.getItem('my_downloads');
-                let dList = dlRes ? JSON.parse(dlRes) : [];
-                
-                if (!dList.find(d => d.id === itemData.id)) {
-                    dList.push({ 
-                        id: itemData.id, 
-                        title: itemData.title, 
-                        localPath: resFile.path(), 
-                        type: 'recording', 
-                        date: new Date().toLocaleDateString() 
-                    });
-                    await AsyncStorage.setItem('my_downloads', JSON.stringify(dList));
-                }
-                
-                const actRes = await AsyncStorage.getItem('active_downloads');
-                let actList = actRes ? JSON.parse(actRes) : {};
-                delete actList[itemData.id];
-                await AsyncStorage.setItem('active_downloads', JSON.stringify(actList));
-
-                if (onDownloadComplete) onDownloadComplete();
-            } catch (err) {
-                console.log("Save Storage Error", err);
-            }
-        })
-        .catch(async (err) => {
-            clearInterval(intervalId);
-            setProgress(null);
-            taskRef.current = null;
-            if (err && err.message && !err.message.includes('cancel')) {
-                Alert.alert("Download Failed", "Something went wrong. Please check your internet connection.");
-            }
-        });
+        );
     };
 
     return (
-        <>
-            <TouchableOpacity onPress={handlePress} style={[styles.downloadBtn, progress !== null && { borderColor: COLORS.primary, borderWidth: 1 }]}>
-                {progress !== null ? (
-                    <View style={styles.progressWrapper}>
-                        <View style={[styles.progressFill, { width: progress === "Saving..." ? "100%" : progress }]} />
-                        <Text style={styles.progressTextSmall}>
-                            {progress === "Saving..." ? "Saving..." : `${progress} Done`}
-                        </Text>
-                        <View style={{position:'absolute', right: 8}}>
-                            <Icon name="close" size={16} color="#333" />
-                        </View>
-                    </View>
-                ) : (
-                    <View style={{flexDirection: 'row', alignItems: 'center'}}>
-                        <Icon name="cloud-download-outline" size={18} color={COLORS.primary} />
-                        <Text style={styles.downloadBtnText}>Offline</Text>
-                    </View>
-                )}
-            </TouchableOpacity>
-            <CancelConfirmModal visible={showCancelModal} onConfirm={handleCancel} onCancel={() => setShowCancelModal(false)} />
-        </>
-    );
-};
-
-// 🔥 CONTENT GROUP LOGIC (Admin panel එකේ හදපු Content Groups වලින් ලස්සනට Group වෙනවා)
-const SectionedContentList = ({ tabKey, type, data, contentGroups, onPlay, onDownloadComplete, onSaveRecent }) => {
-  if (!data || data.length === 0) {
-      let emptyMsg = "No content available yet.";
-      if (tabKey === 'liveClasses') emptyMsg = "No available live classes.";
-      else if (tabKey === 'recordings') emptyMsg = "No available recordings.";
-      else if (tabKey === 'documents') emptyMsg = "No available documents.";
-      else if (tabKey === 'papers') emptyMsg = "No available MCQ papers.";
-      else if (tabKey === 'sPapers') emptyMsg = "No available structured papers.";
-
-      return (
-        <View style={styles.emptyContainer}>
-          <Icon name="folder-open-outline" size={60} color="#ccc" />
-          <Text style={styles.emptyText}>{emptyMsg}</Text>
-        </View>
-      );
-  }
-   
-  const isDocumentType = type === 'document';
-  
-  const groupedData = {};
-  const ungroupedKey = "General Content";
-
-  data.forEach(item => {
-      const groupId = item.content_group_id;
-      let groupName = ungroupedKey;
-      
-      if (groupId && contentGroups && contentGroups.length > 0) {
-          const matchedGroup = contentGroups.find(g => g.id === groupId);
-          if (matchedGroup) {
-              groupName = matchedGroup.title;
-          }
-      }
-      
-      if (!groupedData[groupName]) {
-          groupedData[groupName] = [];
-      }
-      groupedData[groupName].push(item);
-  });
-
-  // Admin Panel එකේ දාලා තියෙන Order එකට Groups ටික හදාගන්නවා
-  const orderedKeys = [];
-  if (contentGroups && contentGroups.length > 0) {
-      contentGroups.forEach(cg => {
-          if (groupedData[cg.title]) {
-              orderedKeys.push(cg.title);
-          }
-      });
-  }
-  Object.keys(groupedData).forEach(key => {
-      if (!orderedKeys.includes(key)) {
-          orderedKeys.push(key);
-      }
-  });
-
-  return (
-    <ScrollView style={styles.tabContent} showsVerticalScrollIndicator={false}>
-      {orderedKeys.map((groupName, index) => {
-        const itemsInGroup = groupedData[groupName];
-        return (
-          <View key={index} style={styles.monthSection}>
-            {/* 🔥 මෙතන තමයි Content Group එකේ නම ලස්සනට වැටෙන්නේ! */}
-            <View style={styles.monthHeader}><Text style={styles.monthHeaderText}>{groupName}</Text></View>
-            
-            {itemsInGroup.map((item) => {
-              const showDownloadBtn = type === 'recording' && item.zoomMeetingId && item.zoomMeetingId !== '';
-
-              return (
-                <View key={`${type}_${item.id}`} style={styles.itemCard}>
-                  <View style={styles.itemInfo}>
-                    <Text style={styles.itemTitle}>{item.title}</Text>
-                    {item.date ? <Text style={styles.itemDate}>{item.date}</Text> : null}
-                  </View>
-                  
-                  <View style={styles.actionRow}>
-                    <TouchableOpacity 
-                        onPress={() => {
-                            if (isDocumentType) {
-                                const docUrl = item.link || item.url || item.file || item.documentUrl || item.document || item.pdf || item.docPath || item.fileName;
-                                if (docUrl) {
-                                    let formattedLink = String(docUrl).trim();
-                                    if (!formattedLink.startsWith('http')) {
-                                        if (formattedLink.includes('storage/documents/')) {
-                                            formattedLink = 'https://www.imacampus.lk/' + formattedLink;
-                                        } else {
-                                            formattedLink = 'https://www.imacampus.lk/storage/documents/' + formattedLink;
-                                        }
-                                    }
-                                    Linking.openURL(formattedLink).catch(err => {
-                                        Alert.alert('Error', 'Could not open document. Please check your browser.');
-                                    });
-                                    if(onSaveRecent) onSaveRecent(item);
-                                } else {
-                                    Alert.alert('Error', 'Document link is missing.');
-                                }
-                            } else {
-                                onPlay(item);
-                            }
-                        }}
-                        style={[styles.watchBtn, !showDownloadBtn && { flex: 1, marginRight: 0 }]}
+        <ScrollView style={styles.tabContent} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
+            {groupedItems.map(({ folder, items }) => (
+                <View key={`folder-${folder.id}`} style={styles.monthSection}>
+                    <TouchableOpacity
+                        style={[styles.monthHeader, { alignSelf: 'stretch', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10 }]}
+                        onPress={() => toggleFolder(folder.id)} activeOpacity={0.7}
                     >
-                      <Icon name={isDocumentType ? "file-eye-outline" : "play-circle-outline"} size={18} color="white" style={{marginRight: 8}} />
-                      <Text style={styles.watchBtnText}>{isDocumentType ? 'View' : 'Watch Online'}</Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, paddingRight: 10 }}>
+                            <Icon name="folder-open" size={18} color="white" style={{ marginRight: 10 }} />
+                            <Text style={[styles.monthHeaderText, { fontSize: 14 }]} numberOfLines={1}>{folder.title || folder.name}</Text>
+                        </View>
+                        <Icon name={openFolders[folder.id] ? "chevron-up" : "chevron-down"} size={22} color="white" />
                     </TouchableOpacity>
 
-                    {showDownloadBtn && (
-                        <DownloadButton item={item} onDownloadComplete={onDownloadComplete} />
+                    {openFolders[folder.id] && (
+                        <View style={{ paddingLeft: 10, marginTop: 5 }}>
+                            {items.length === 0 ? (
+                                <Text style={{ color: '#9CA3AF', fontSize: 12, fontStyle: 'italic', marginBottom: 15, paddingLeft: 10 }}>This folder is empty.</Text>
+                            ) : (items.map(item => renderItemCard(item)))}
+                        </View>
                     )}
-                  </View>
                 </View>
-              );
-            })}
-          </View>
-        );
-      })}
-    </ScrollView>
-  );
+            ))}
+
+            {uncategorizedItems.length > 0 && (
+                <View style={styles.monthSection}>
+                    <View style={[styles.monthHeader, { alignSelf: 'stretch', flexDirection: 'row', alignItems: 'center', backgroundColor: '#4B5563', paddingVertical: 10 }]}>
+                        <Icon name="layers-outline" size={18} color="white" style={{ marginRight: 10 }} />
+                        <Text style={[styles.monthHeaderText, { fontSize: 14 }]}>General Content</Text>
+                    </View>
+                    <View style={{ paddingLeft: 10, marginTop: 5 }}>
+                        {uncategorizedItems.map(item => renderItemCard(item))}
+                    </View>
+                </View>
+            )}
+        </ScrollView>
+    );
 };
 
 const CourseContentScreen = ({ route, navigation }) => {
-  const { courseId, courseTitle } = route.params;
-  const [content, setContent] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [playingItem, setPlayingItem] = useState(null);
-  const [alertVisible, setAlertVisible] = useState(false);
-  const [alertConfig, setAlertConfig] = useState({ title: '', msg: '', type: 'success' });
-  
-  const [dynamicTabs, setDynamicTabs] = useState(KNOWN_TABS); 
-  const [activeTab, setActiveTab] = useState(route.params?.activeTab || 'liveClasses'); 
-   
-  useFocusEffect(useCallback(() => {
-    let isActive = true;
-    const loadData = async () => {
-      try {
-        const res = await api.get(`/viewModule/${courseId}`);
-        if (isActive) {
-            setContent(res.data);
-        }
-      } catch (e) { if (isActive) Alert.alert("Error", "Sync failed."); }
-      finally { if (isActive) setLoading(false); }
+    const { width } = useWindowDimensions();
+    const { courseId, courseTitle, hasAccess } = route.params;
+    const [content, setContent] = useState(null);
+    const [loading, setLoading] = useState(true);
+
+    const [playingItem, setPlayingItem] = useState(null);
+    const [ytPlaying, setYtPlaying] = useState(true);
+    const webViewRef = useRef(null);
+
+    const [alertVisible, setAlertVisible] = useState(false);
+    const [alertConfig, setAlertConfig] = useState({ title: '', msg: '', type: 'success' });
+    const [activeTab, setActiveTab] = useState(route.params?.activeTab || 'recordings');
+
+    const insets = useSafeAreaInsets();
+    const { userInfo } = useContext(AuthContext);
+
+    useFocusEffect(useCallback(() => {
+        let isActive = true;
+        api.get(`mobile/module/${courseId}`)
+            .then(res => { if (isActive) setContent(res.data); })
+            .catch(e => { })
+            .finally(() => { if (isActive) setLoading(false); });
+        return () => { isActive = false; };
+    }, [courseId]));
+
+    const saveToRecent = async (item) => {
+        try {
+            if (!userInfo?.id) return;
+            const newItem = { courseId, title: item.title || "Course Item", courseTitle };
+            const storageKey = `recent_activity_${userInfo.id}`;
+            const existing = await AsyncStorage.getItem(storageKey);
+            let history = existing ? JSON.parse(existing).filter(h => h.title !== newItem.title) : [];
+            history.unshift(newItem);
+            if (history.length > 5) history.pop();
+            await AsyncStorage.setItem(storageKey, JSON.stringify(history));
+        } catch (error) { }
     };
-    loadData();
-    return () => { isActive = false; };
-  }, [courseId]));
 
-  const showDownloadSuccess = () => {
-      setAlertConfig({ title: "Success", msg: "Download complete! Check Downloads tab.", type: "success" });
-      setAlertVisible(true);
-  };
+    const getYouTubeID = (url) => {
+        if (!url) return null;
+        const regex = /(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=|live\/|shorts\/))([\w-]{11})/;
+        const match = url.match(regex);
+        return match ? match[1] : null;
+    };
 
-  const saveToRecent = async (item) => {
-      try {
-          const itemTitle = item.title || item.name || "Course Item";
-          const cTitle = courseTitle || "Course";
-          const newItem = { courseId, title: itemTitle, courseTitle: cTitle };
+    // 🔥 OFFLINE PLAYBACK LOGIC ADDED HERE 🔥
+    const handlePlayVideo = async (item) => {
+        const videoLink = item.link || item.url || item.file;
+        if (!videoLink) return Alert.alert("Error", "Video link is unavailable.");
 
-          const existingHistory = await AsyncStorage.getItem('recent_activity');
-          let historyArray = existingHistory ? JSON.parse(existingHistory) : [];
-          historyArray = historyArray.filter(h => h.title !== newItem.title);
-          historyArray.unshift(newItem);
-          if (historyArray.length > 5) historyArray.pop();
+        saveToRecent(item);
 
-          await AsyncStorage.setItem('recent_activity', JSON.stringify(historyArray));
-      } catch (error) {}
-  };
+        // Check if file is downloaded securely in App Internal Storage
+        const securePath = `${secureStoragePath}/f_${item.id}.mp4`;
+        try {
+            const fileExists = await RNFS.exists(securePath);
+            if (fileExists) {
+                const stat = await RNFS.stat(securePath);
+                if (stat.size > 2 * 1024 * 1024) { // Valid video file check
+                    setPlayingItem({ ...item, link: `file://${securePath}`, isYouTube: false, isOffline: true });
+                    return; // Play offline and exit function
+                }
+            }
+        } catch (err) {
+            console.log("Offline playback check error: ", err);
+        }
 
-  const handlePlayVideo = (item) => {
-      const videoLink = item.link || item.url || item.file;
-      if (videoLink) {
-          setPlayingItem({ ...item, link: videoLink }); 
-          saveToRecent(item);
-      } else {
-          Alert.alert("Error", "Video link is unavailable.");
-      }
-  };
+        // If not downloaded, proceed with normal Online Playback
+        const ytId = getYouTubeID(videoLink);
+        if (ytId) {
+            setPlayingItem({ ...item, isYouTube: true, ytId: ytId });
+            setYtPlaying(true);
+        } else {
+            setPlayingItem({ ...item, link: videoLink, isYouTube: false, isOffline: false });
+        }
+    };
 
-  if (loading) return <View style={styles.loader}><ActivityIndicator size="large" color={COLORS.primary} /></View>;
+    if (loading) return <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}><ActivityIndicator size="large" color={COLORS.primary} /></View>;
 
-  const status = content ? parseInt(content.paidStatus) : 0;
+    let status = content ? parseInt(content.paidStatus) : 0;
+    if (hasAccess && content) { status = 1; }
 
-  if (content && status === -1) {
+    if (status !== 1) {
+        return (
+            <View style={styles.container}>
+                <StatusBar barStyle="light-content" backgroundColor="transparent" translucent={true} />
+                <View style={[styles.redHeader, { paddingTop: insets.top + 15 }]}>
+                    <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}><Icon name="arrow-left" size={24} color="white" /></TouchableOpacity>
+                    <Text style={styles.headerTitle} numberOfLines={1}>{courseTitle}</Text>
+                </View>
+                <View style={styles.messageContainer}>
+                    <View style={[styles.emptyIconBox, { width: 120, height: 120, borderRadius: 60 }]}>
+                        <Icon name={status === -1 ? "clock-time-four-outline" : "lock-alert"} size={60} color={status === -1 ? "#F59E0B" : COLORS.primary} />
+                    </View>
+                    <Text style={styles.messageTitle}>{status === -1 ? 'Payment Pending' : 'Access Denied'}</Text>
+                    <Text style={styles.messageBody}>{status === -1 ? 'Your bank slip is currently under review. Access will be granted automatically once approved.' : 'You do not have access to this course. Please enroll to view content.'}</Text>
+                    <TouchableOpacity onPress={() => navigation.goBack()} style={styles.goBackBtn}><Text style={styles.goBackText}>Go Back</Text></TouchableOpacity>
+                </View>
+            </View>
+        );
+    }
+
     return (
-        <SafeAreaView style={styles.container}>
-            <View style={styles.header}>
-                <TouchableOpacity onPress={() => navigation.goBack()}><Icon name="arrow-left" size={24} color="#D32F2F" /></TouchableOpacity>
-                <Text style={styles.headerTitle}>{courseTitle}</Text>
+        <View style={styles.container}>
+            <StatusBar barStyle="light-content" backgroundColor="transparent" translucent={true} />
+            <CustomAlert isVisible={alertVisible} title={alertConfig.title} message={alertConfig.msg} type={alertConfig.type} onClose={() => setAlertVisible(false)} />
+
+            <View style={[styles.redHeader, { paddingTop: insets.top + 15 }]}>
+                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}><Icon name="arrow-left" size={24} color="white" /></TouchableOpacity>
+                <Text style={styles.headerTitle} numberOfLines={1}>{courseTitle}</Text>
             </View>
-            <View style={styles.messageContainer}>
-                <Icon name="clock-time-four-outline" size={80} color="#FF9800" />
-                <Text style={styles.messageTitle}>Payment Pending</Text>
-                <Text style={styles.messageBody}>Your bank slip is currently under review. Access will be granted automatically once approved.</Text>
-                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.goBackBtn}>
-                    <Text style={styles.goBackText}>Go Back</Text>
-                </TouchableOpacity>
+
+            <View style={styles.customTabBarContainer}>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.customTabBar}>
+                    {KNOWN_TABS.map((tab) => (
+                        <TouchableOpacity key={tab.key} style={[styles.customTab, activeTab === tab.key && styles.customTabActive]} onPress={() => setActiveTab(tab.key)}>
+                            <Icon name={tab.icon} size={16} color={activeTab === tab.key ? COLORS.primary : '#6B7280'} style={{ marginBottom: 4 }} />
+                            <Text style={[styles.customTabText, activeTab === tab.key && styles.customTabTextActive]}>{tab.title}</Text>
+                        </TouchableOpacity>
+                    ))}
+                </ScrollView>
             </View>
-        </SafeAreaView>
-    );
-  }
 
-  if (content && status === 0) {
-    return (
-        <SafeAreaView style={styles.container}>
-            <View style={styles.header}>
-                <TouchableOpacity onPress={() => navigation.goBack()}><Icon name="arrow-left" size={24} color="#D32F2F" /></TouchableOpacity>
-                <Text style={styles.headerTitle}>{courseTitle}</Text>
+            <View style={{ flex: 1 }}>
+                {activeTab && (() => {
+                    const currentTabConfig = KNOWN_TABS.find(t => t.key === activeTab);
+                    return <SectionedContentList
+                        tabKey={activeTab}
+                        type={currentTabConfig.type}
+                        data={content[activeTab] || []}
+                        contentGroups={content.lessonGroups || content.contentGroups || []}
+                        onPlay={handlePlayVideo}
+                        courseTitle={courseTitle}
+                        onShowAlert={(config) => { setAlertConfig(config); setAlertVisible(true); }}
+                    />;
+                })()}
             </View>
-            <View style={styles.messageContainer}>
-                <Icon name="lock-alert" size={80} color={COLORS.primary} />
-                <Text style={styles.messageTitle}>Access Denied</Text>
-                <Text style={styles.messageBody}>You do not have access to this course. Please enroll to view content.</Text>
-                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.goBackBtn}>
-                    <Text style={styles.goBackText}>Go Back</Text>
-                </TouchableOpacity>
-            </View>
-        </SafeAreaView>
-    );
-  }
 
-  return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <CustomAlert isVisible={alertVisible} title={alertConfig.title} message={alertConfig.msg} type={alertConfig.type} onClose={() => setAlertVisible(false)} />
-      
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}><Icon name="arrow-left" size={24} color="#333" /></TouchableOpacity>
-        <Text style={styles.headerTitle} numberOfLines={1}>{courseTitle}</Text>
-      </View>
+            {/* 🔴 SECURE VIDEO PLAYER MODAL 🔴 */}
+            <Modal visible={!!playingItem} animationType="slide" onRequestClose={() => { setPlayingItem(null); setYtPlaying(false); }}>
+                <View style={{ flex: 1, backgroundColor: 'black' }}>
 
-      <View style={styles.customTabBarContainer}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.customTabBar}>
-              {dynamicTabs.map((tab) => (
-                  <TouchableOpacity 
-                      key={tab.key}
-                      style={[styles.customTab, activeTab === tab.key && styles.customTabActive]} 
-                      onPress={() => setActiveTab(tab.key)}
-                  >
-                      <Text style={[styles.customTabText, activeTab === tab.key && styles.customTabTextActive]}>
-                          {tab.title}
-                      </Text>
-                  </TouchableOpacity>
-              ))}
-          </ScrollView>
-      </View>
+                    <View style={[styles.playerHeader, { paddingTop: insets.top + 15 }]}>
+                        <TouchableOpacity onPress={() => { setPlayingItem(null); setYtPlaying(false); }} style={styles.backBtn}>
+                            <Icon name="close" size={24} color="white" />
+                        </TouchableOpacity>
+                        <Text style={{ color: 'white', fontWeight: 'bold', flex: 1, fontSize: 16 }} numberOfLines={1}>
+                            {playingItem?.isOffline ? `(Offline) ${playingItem?.title}` : playingItem?.title}
+                        </Text>
+                    </View>
 
-      <View style={{flex: 1}}>
-          {activeTab && (() => {
-              const currentTabConfig = dynamicTabs.find(t => t.key === activeTab);
-              const currentType = currentTabConfig ? currentTabConfig.type : 'video';
-              
-              const currentData = content ? content[activeTab] || [] : [];
-              const contentGroups = content ? content.contentGroups : [];
+                    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#0f172a' }}>
+                        {playingItem?.isYouTube ? (
+                            <View style={{ width: width, paddingBottom: 20 }}>
+                                <View style={{ width: width, aspectRatio: 16 / 9, backgroundColor: 'black' }}>
+                                    <WebView
+                                        ref={webViewRef}
+                                        source={{
+                                            html: `
+                                <!DOCTYPE html>
+                                <html>
+                                <head>
+                                    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+                                    <style>
+                                        body { margin: 0; padding: 0; background-color: #000; overflow: hidden; display: flex; align-items: center; justify-content: center; height: 100vh; }
+                                        .video-container { position: relative; width: 100vw; height: 56.25vw; pointer-events: none; }
+                                        iframe { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: 0; }
+                                    </style>
+                                </head>
+                                <body>
+                                    <div class="video-container">
+                                        <div id="player"></div>
+                                    </div>
+                                    <script>
+                                        var tag = document.createElement('script');
+                                        tag.src = "https://www.youtube.com/iframe_api";
+                                        var firstScriptTag = document.getElementsByTagName('script')[0];
+                                        firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
 
-              return (
-                  <SectionedContentList 
-                      tabKey={activeTab} 
-                      type={currentType} 
-                      data={currentData} 
-                      contentGroups={contentGroups} 
-                      onPlay={handlePlayVideo} 
-                      onDownloadComplete={showDownloadSuccess}
-                      onSaveRecent={saveToRecent}
-                  />
-              );
-          })()}
-      </View>
+                                        var player;
+                                        function onYouTubeIframeAPIReady() {
+                                            player = new YT.Player('player', {
+                                                videoId: '${playingItem.ytId}',
+                                                playerVars: {
+                                                    'autoplay': 1, 'controls': 0, 'rel': 0, 'modestbranding': 1, 'playsinline': 1, 'fs': 0
+                                                },
+                                                events: {
+                                                    'onReady': function(event) { event.target.playVideo(); },
+                                                    'onStateChange': function(event) {
+                                                        if(event.data === YT.PlayerState.PLAYING) {
+                                                            window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'playing' }));
+                                                        } else if(event.data === YT.PlayerState.PAUSED) {
+                                                            window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'paused' }));
+                                                        } else if(event.data === YT.PlayerState.ENDED) {
+                                                            window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'ended' }));
+                                                        }
+                                                    }
+                                                }
+                                            });
+                                        }
 
-      <Modal visible={!!playingItem} animationType="slide" onRequestClose={() => setPlayingItem(null)}>
-        <View style={{ flex: 1, backgroundColor: 'black' }}>
-          <View style={styles.playerHeader}>
-             <TouchableOpacity onPress={() => setPlayingItem(null)}><Icon name="close" size={30} color="white" /></TouchableOpacity>
-             <Text style={{color: 'white', fontWeight: 'bold', flex: 1, marginLeft: 15}} numberOfLines={1}>{playingItem?.title}</Text>
-          </View>
-          
-          {playingItem?.link && (() => {
-              let finalVideoUrl = playingItem.link;
-              if (finalVideoUrl.includes('vimeo.com') && !finalVideoUrl.includes('player.vimeo.com')) {
-                  let urlParts = finalVideoUrl.split('vimeo.com/');
-                  if (urlParts.length > 1) {
-                      let vimeoId = urlParts[1].split('?')[0].split('/')[0]; 
-                      finalVideoUrl = `https://player.vimeo.com/video/${vimeoId}`;
-                  }
-              }
-              return (
-                 <WebView source={{ uri: finalVideoUrl, headers: { 'Referer': 'https://www.imacampus.lk/' } }} style={{ flex: 1 }} allowsFullscreenVideo={true} javaScriptEnabled={true} domStorageEnabled={true} originWhitelist={['*']} />
-              );
-          })()}
+                                        window.addEventListener('message', function(event) {
+                                            if (event.data === 'play') player.playVideo();
+                                            if (event.data === 'pause') player.pauseVideo();
+                                        });
+                                    </script>
+                                </body>
+                                </html>
+                            ` }}
+                                        style={{ flex: 1, backgroundColor: 'black' }}
+                                        originWhitelist={['*']} javaScriptEnabled={true} domStorageEnabled={true}
+                                        allowsInlineMediaPlayback={true} mediaPlaybackRequiresUserAction={false}
+                                        scrollEnabled={false} bounces={false}
+                                        onMessage={(event) => {
+                                            try {
+                                                const data = JSON.parse(event.nativeEvent.data);
+                                                if (data.event === 'playing') setYtPlaying(true);
+                                                if (data.event === 'paused') setYtPlaying(false);
+                                                if (data.event === 'ended') setYtPlaying(false);
+                                            } catch (e) { }
+                                        }}
+                                        onShouldStartLoadWithRequest={(request) => {
+                                            if (request.url.startsWith('intent://') || request.url.startsWith('vnd.youtube')) return false;
+                                            return true;
+                                        }}
+                                    />
+                                </View>
+
+                                <View style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginTop: 30 }}>
+                                    <TouchableOpacity
+                                        onPress={() => {
+                                            const nextState = !ytPlaying;
+                                            setYtPlaying(nextState);
+                                            webViewRef.current?.injectJavaScript(`
+                                    window.postMessage('${nextState ? 'play' : 'pause'}', '*');
+                                    true;
+                                `);
+                                        }}
+                                        style={{ backgroundColor: COLORS.primary, width: 60, height: 60, borderRadius: 30, justifyContent: 'center', alignItems: 'center', elevation: 5 }}
+                                    >
+                                        <Icon name={ytPlaying ? "pause" : "play"} size={35} color="white" style={!ytPlaying ? { marginLeft: 5 } : {}} />
+                                    </TouchableOpacity>
+                                </View>
+
+                            </View>
+                        ) : (
+                            // 🔥 FIX: Supports Both Online & Offline Video Playback through WebView 
+                            <WebView
+                                source={
+                                    playingItem?.isOffline
+                                        ? {
+                                            html: `
+                            <!DOCTYPE html>
+                            <html>
+                            <head>
+                                <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+                                <style>
+                                    body { margin: 0; background-color: #000; display: flex; align-items: center; justify-content: center; height: 100vh; }
+                                    video { width: 100%; height: auto; max-height: 100vh; outline: none; }
+                                </style>
+                            </head>
+                            <body>
+                                <video controls autoplay controlsList="nodownload">
+                                    <source src="${playingItem?.link}" type="video/mp4">
+                                </video>
+                            </body>
+                            </html>
+                        ` }
+                                        : { uri: playingItem?.link }
+                                }
+                                style={{ width: width, flex: 1, backgroundColor: 'black' }}
+                                allowsInlineMediaPlayback={true}
+                                originWhitelist={['*']}
+                                allowFileAccess={true}
+                                allowFileAccessFromFileURLs={true}
+                                allowUniversalAccessFromFileURLs={true}
+                                javaScriptEnabled={true}
+                                domStorageEnabled={true}
+                            />
+                        )}
+                    </View>
+                </View>
+            </Modal>
+            <GlobalDownloadWidget />
         </View>
-      </Modal>
-    </SafeAreaView>
-  );
+    );
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8F9FB' }, 
-  header: { padding: 20, paddingTop: 10, flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFFFFF' }, 
-  headerTitle: { fontSize: 18, fontWeight: '800', marginLeft: 15, color: '#D32F2F', flex: 1 }, 
-  
-  customTabBarContainer: { maxHeight: 65, minHeight: 65, marginBottom: 5, marginTop: 5 },
-  customTabBar: { flexDirection: 'row', backgroundColor: '#E0E0E0', marginHorizontal: 15, borderRadius: 10, padding: 4, alignItems: 'center' },
-  customTab: { paddingHorizontal: 20, paddingVertical: 12, alignItems: 'center', justifyContent: 'center', borderRadius: 8, minWidth: 100 },
-  customTabActive: { backgroundColor: '#FFFFFF', elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2 },
-  customTabText: { fontWeight: 'bold', fontSize: 13, color: '#666666' },
-  customTabTextActive: { color: COLORS.primary },
-
-  tabContent: { flex: 1, padding: 15 },
-  itemCard: { backgroundColor: 'white', borderRadius: 20, padding: 15, marginBottom: 12, elevation: 3 },
-  itemTitle: { fontSize: 14, fontWeight: 'bold', color: '#333' },
-  itemDate: { fontSize: 11, color: '#888', marginTop: 4 }, 
-  itemInfo: { flex: 1 },
-  actionRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10 },
-  watchBtn: { backgroundColor: '#1A1A1A', paddingVertical: 10, paddingHorizontal: 15, borderRadius: 12, flexDirection: 'row', alignItems: 'center', flex: 0.6, justifyContent: 'center' },
-  watchBtnText: { color: 'white', fontWeight: 'bold', fontSize: 12 },
-  
-  downloadBtn: { backgroundColor: '#F0F0F0', borderRadius: 12, flex: 0.38, alignItems: 'center', justifyContent: 'center', height: 42, overflow: 'hidden', borderWidth: 1, borderColor: '#E0E0E0' },
-  downloadBtnText: { color: COLORS.primary, fontWeight: 'bold', fontSize: 12, marginLeft: 5 },
-  progressWrapper: { width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center', backgroundColor: '#f0f0f0', position: 'relative' },
-  progressFill: { position: 'absolute', left: 0, top: 0, bottom: 0, backgroundColor: '#FFEAEA', zIndex: 1 },
-  progressTextSmall: { fontSize: 11, fontWeight: 'bold', color: COLORS.primary, zIndex: 10, position: 'absolute', left: 10 },
-
-  loader: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  monthSection: { marginBottom: 25 },
-  monthHeader: { backgroundColor: COLORS.primary, paddingVertical: 8, paddingHorizontal: 15, borderTopRightRadius: 10, borderBottomRightRadius: 10, marginBottom: 12, alignSelf: 'flex-start', marginLeft: -15 },
-  monthHeaderText: { color: 'white', fontWeight: 'bold', fontSize: 13 },
-  emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 50 },
-  emptyText: { color: '#999', marginTop: 10, fontWeight: 'bold', textAlign: 'center' },
-  playerHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 50, paddingBottom: 15, backgroundColor: 'black' },
-  messageContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 30 },
-  messageTitle: { fontSize: 22, fontWeight: 'bold', color: '#333', marginTop: 20, marginBottom: 10 },
-  messageBody: { fontSize: 14, color: '#666', textAlign: 'center', lineHeight: 22, marginBottom: 30 },
-  goBackBtn: { backgroundColor: '#D32F2F', paddingHorizontal: 25, paddingVertical: 12, borderRadius: 10 },
-  goBackText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
-
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
-  confirmModalContainer: { width: '80%', backgroundColor: 'white', borderRadius: 20, padding: 25, alignItems: 'center', elevation: 10 },
-  confirmIconContainer: { marginBottom: 15, backgroundColor: '#FFEBEE', padding: 15, borderRadius: 50 },
-  confirmTitle: { fontSize: 18, fontWeight: 'bold', color: '#333', marginBottom: 10 },
-  confirmMessage: { fontSize: 14, color: '#666', textAlign: 'center', marginBottom: 25 },
-  confirmBtnRow: { flexDirection: 'row', justifyContent: 'space-between', width: '100%' },
-  confirmBtnNo: { flex: 1, paddingVertical: 12, backgroundColor: '#F5F5F5', borderRadius: 10, marginRight: 10, alignItems: 'center' },
-  confirmBtnYes: { flex: 1, paddingVertical: 12, backgroundColor: '#FF5252', borderRadius: 10, marginLeft: 10, alignItems: 'center' },
-  confirmBtnNoText: { color: '#666', fontWeight: 'bold' },
-  confirmBtnYesText: { color: 'white', fontWeight: 'bold' },
+    container: { flex: 1, backgroundColor: '#F5F7FA' },
+    redHeader: { backgroundColor: COLORS.primary, paddingHorizontal: 20, paddingBottom: 25, borderBottomLeftRadius: 35, borderBottomRightRadius: 35, elevation: 8, shadowColor: COLORS.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 10, zIndex: 10, flexDirection: 'row', alignItems: 'center' },
+    backBtn: { marginRight: 15, padding: 8, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 12 },
+    headerTitle: { fontSize: 20, fontWeight: '900', color: 'white', letterSpacing: 0.5, flex: 1 },
+    customTabBarContainer: { marginTop: 15, marginBottom: 5 },
+    customTabBar: { paddingHorizontal: 15, gap: 10 },
+    customTab: { paddingHorizontal: 16, paddingVertical: 10, alignItems: 'center', justifyContent: 'center', borderRadius: 15, backgroundColor: 'white', borderWidth: 1, borderColor: '#F0F0F0', minWidth: 90 },
+    customTabActive: { backgroundColor: '#FEF2F2', borderColor: COLORS.primary, elevation: 2 },
+    customTabText: { fontWeight: '800', fontSize: 11, color: '#6B7280' },
+    customTabTextActive: { color: COLORS.primary },
+    tabContent: { flex: 1, padding: 20 },
+    monthSection: { marginBottom: 25 },
+    monthHeader: { backgroundColor: COLORS.primary, paddingVertical: 6, paddingHorizontal: 15, borderRadius: 8, marginBottom: 15, alignSelf: 'flex-start' },
+    monthHeaderText: { color: 'white', fontWeight: '900', fontSize: 12, textTransform: 'uppercase', letterSpacing: 1 },
+    itemCard: { backgroundColor: 'white', marginBottom: 20, borderRadius: 20, elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.08, shadowRadius: 8, borderWidth: 1, borderColor: '#F3F4F6', overflow: 'hidden' },
+    landscapeImage: { width: '100%', height: 160, backgroundColor: '#F9FAFB' },
+    itemInfo: { padding: 15 },
+    itemTitle: { fontSize: 16, fontWeight: '900', color: '#1A1A1A', marginBottom: 6, lineHeight: 22 },
+    itemDate: { fontSize: 12, color: '#9CA3AF', fontWeight: '700', marginBottom: 15 },
+    actionRow: { flexDirection: 'row', gap: 10 },
+    watchBtn: { backgroundColor: '#1A1A1A', paddingVertical: 12, paddingHorizontal: 15, borderRadius: 12, flex: 1, alignItems: 'center', justifyContent: 'center' },
+    watchBtnText: { color: 'white', fontWeight: '800', fontSize: 12, textTransform: 'uppercase' },
+    docDownloadBtn: { backgroundColor: '#FEF2F2', borderRadius: 12, paddingHorizontal: 15, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', borderWidth: 1, borderColor: '#FECACA' },
+    docDownloadText: { color: COLORS.primary, fontWeight: '800', fontSize: 12, marginLeft: 6, textTransform: 'uppercase' },
+    emptyContainer: { alignItems: 'center', marginTop: 60 },
+    emptyIconBox: { width: 100, height: 100, borderRadius: 50, backgroundColor: 'white', justifyContent: 'center', alignItems: 'center', marginBottom: 20, elevation: 2 },
+    emptyTitle: { fontSize: 20, fontWeight: '900', color: '#1A1A1A', marginBottom: 10 },
+    emptyText: { fontSize: 13, color: '#6B7280', textAlign: 'center', lineHeight: 22, fontWeight: '700', paddingHorizontal: 20 },
+    playerHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingBottom: 15, backgroundColor: 'black' },
+    messageContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 30 },
+    messageTitle: { fontSize: 24, fontWeight: '900', color: '#1A1A1A', marginTop: 20, marginBottom: 10 },
+    messageBody: { fontSize: 14, color: '#6B7280', textAlign: 'center', lineHeight: 22, marginBottom: 30, fontWeight: '600' },
+    goBackBtn: { backgroundColor: COLORS.primary, paddingHorizontal: 30, paddingVertical: 14, borderRadius: 15, elevation: 4 },
+    goBackText: { color: 'white', fontWeight: '900', fontSize: 15 },
 });
 
 export default CourseContentScreen;
