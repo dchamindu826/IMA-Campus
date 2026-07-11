@@ -5,6 +5,7 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import LinearGradient from 'react-native-linear-gradient';
 import io from 'socket.io-client';
 import api from '../services/api';
+import COLORS from '../constants/colors';
 
 const DP_IMAGES = Array.from({ length: 20 }, (_, i) => `${(i + 1).toString().padStart(2, '0')}.jpg`);
 
