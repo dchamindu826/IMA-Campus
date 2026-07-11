@@ -15,6 +15,7 @@ import COLORS from '../constants/colors';
 import GlobalDownloadWidget from '../components/GlobalDownloadWidget';
 import downloadManager from '../services/downloadManager';
 import { DeviceEventEmitter } from 'react-native';
+import LinearGradient from 'react-native-linear-gradient';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import CustomAlert from '../components/CustomAlert';
 import { AuthContext } from '../context/AuthContext';
@@ -401,7 +402,8 @@ const CourseContentScreen = ({ route, navigation }) => {
         return (
             <View style={styles.container}>
                 <StatusBar barStyle="light-content" backgroundColor="transparent" translucent={true} />
-                <View style={[styles.redHeader, { paddingTop: insets.top + 15 }]}>
+                <LinearGradient colors={[COLORS.primary, '#9A0007']} start={{x: 0, y: 0}} end={{x: 1, y: 1}} style={[styles.redHeader, { paddingTop: insets.top + 15 }]}>
+        <Icon name="school" size={150} color="rgba(255,255,255,0.06)" style={{position: 'absolute', right: -30, top: -20, transform: [{rotate: '-15deg'}]}} />
                     <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}><Icon name="arrow-left" size={24} color="white" /></TouchableOpacity>
                     <Text style={styles.headerTitle} numberOfLines={1}>{courseTitle}</Text>
                 </View>
@@ -422,7 +424,8 @@ const CourseContentScreen = ({ route, navigation }) => {
             <StatusBar barStyle="light-content" backgroundColor="transparent" translucent={true} />
             <CustomAlert isVisible={alertVisible} title={alertConfig.title} message={alertConfig.msg} type={alertConfig.type} onClose={() => setAlertVisible(false)} />
 
-            <View style={[styles.redHeader, { paddingTop: insets.top + 15 }]}>
+            <LinearGradient colors={[COLORS.primary, '#9A0007']} start={{x: 0, y: 0}} end={{x: 1, y: 1}} style={[styles.redHeader, { paddingTop: insets.top + 15 }]}>
+        <Icon name="school" size={150} color="rgba(255,255,255,0.06)" style={{position: 'absolute', right: -30, top: -20, transform: [{rotate: '-15deg'}]}} />
                 <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}><Icon name="arrow-left" size={24} color="white" /></TouchableOpacity>
                 <Text style={styles.headerTitle} numberOfLines={1}>{courseTitle}</Text>
             </View>
@@ -605,7 +608,7 @@ const CourseContentScreen = ({ route, navigation }) => {
 
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: '#F5F7FA' },
-    redHeader: { backgroundColor: COLORS.primary, paddingHorizontal: 20, paddingBottom: 25, borderBottomLeftRadius: 35, borderBottomRightRadius: 35, elevation: 8, shadowColor: COLORS.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 10, zIndex: 10, flexDirection: 'row', alignItems: 'center' },
+    redHeader: { paddingHorizontal: 20, paddingBottom: 25, borderBottomLeftRadius: 35, borderBottomRightRadius: 35, elevation: 8, shadowColor: COLORS.primary, shadowOffset: { width: 0, height: 4 , overflow: 'hidden'}, shadowOpacity: 0.3, shadowRadius: 10, zIndex: 10, flexDirection: 'row', alignItems: 'center' },
     backBtn: { marginRight: 15, padding: 8, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 12 },
     headerTitle: { fontSize: 20, fontWeight: '900', color: 'white', letterSpacing: 0.5, flex: 1 },
     customTabBarContainer: { marginTop: 15, marginBottom: 5 },

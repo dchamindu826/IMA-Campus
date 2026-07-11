@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, Animated, Alert, Linking, StatusBar, Image, ActivityIndicator } from 'react-native';
+import LinearGradient from 'react-native-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context'; 
 import { useFocusEffect } from '@react-navigation/native';
 import notifee, { TriggerType, AndroidImportance, AndroidStyle } from '@notifee/react-native';
