@@ -1,15 +1,20 @@
 import React, { useState, useMemo, useEffect, useLayoutEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Image, Modal, StatusBar, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Image, Modal, StatusBar, Platform, LayoutAnimation, UIManager, Dimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import LinearGradient from 'react-native-linear-gradient';
 import COLORS from '../constants/colors';
 import api, { IMAGE_URL } from '../services/api';
+
+const { width } = Dimensions.get('window');
+
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+    UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 const CourseDetailsScreen = ({ route, navigation }) => {
     const { businessData, autoSelect, selectedBatchId, selectedMonthGroupId, preSelectedSubjects, paymentPlan } = route.params;
 
-    // 🔥 Category එක "Others" නම් Special Flow එකක් නෙමෙයි (Streams පෙන්නන්නේ නෑ). 
-    // නැත්නම් (A/L වගේ නම්) Special Flow එක Active වෙනවා (Streams පෙන්නනවා).
     const isSpecialFlow = String(businessData?.category || '').toLowerCase() !== 'others';
 
     const [step, setStep] = useState(isSpecialFlow ? 1 : 2);
@@ -61,11 +66,9 @@ const CourseDetailsScreen = ({ route, navigation }) => {
                 const batch = (businessData?.batches || []).find(b => b.id == selectedBatchId);
                 if (batch) {
                     setSelectedBatch(batch);
-
                     const groups = Array.isArray(batch.groups) ? batch.groups : Object.values(batch.groups || {});
                     const group = groups.find(g => g.id == selectedMonthGroupId);
                     if (group) setSelectedMonthGroup(group);
-
                     setSelectedPlan(paymentPlan || 'full');
 
                     if (preSelectedSubjects) {
@@ -74,8 +77,7 @@ const CourseDetailsScreen = ({ route, navigation }) => {
                             setSelectedSubjects(subjectsArr.map(id => parseInt(id)));
                         }
                     }
-
-                    setStep(5); // Subject selection step
+                    changeStep(5);
                 }
             } catch (e) {
                 console.log("Auto select parse error:", e);
@@ -83,7 +85,6 @@ const CourseDetailsScreen = ({ route, navigation }) => {
         }
     }, [autoSelect]);
 
-    // 🔥 FILTER LOGIC FIX 🔥
     const availableStreams = useMemo(() => {
         if (!businessData?.streams) return ['All'];
         const streams = businessData.streams.split(',').map(s => s.trim()).filter(s => s && s.toLowerCase() !== 'all');
@@ -91,7 +92,6 @@ const CourseDetailsScreen = ({ route, navigation }) => {
     }, [businessData]);
 
     const showStreamFilter = isSpecialFlow && availableStreams.length >= 2;
-
     const batches = useMemo(() => businessData?.batches || [], [businessData]);
     const safeGroups = useMemo(() => { if (!selectedBatch?.groups) return []; return Array.isArray(selectedBatch.groups) ? selectedBatch.groups : Object.values(selectedBatch.groups); }, [selectedBatch]);
 
@@ -103,7 +103,6 @@ const CourseDetailsScreen = ({ route, navigation }) => {
             else courses = Array.isArray(selectedMonthGroup.courses) ? selectedMonthGroup.courses : Object.values(selectedMonthGroup.courses);
         } catch (e) { }
 
-        // Only filter by stream if it's a Special Flow (A/L) and a specific stream is selected
         if (isSpecialFlow && activeStream !== 'All') {
             courses = courses.filter(c => {
                 let parsedStreams = [];
@@ -111,14 +110,12 @@ const CourseDetailsScreen = ({ route, navigation }) => {
                     if (c.streams && typeof c.streams === 'string') parsedStreams = JSON.parse(c.streams);
                     else if (Array.isArray(c.streams)) parsedStreams = c.streams;
                 } catch (e) { }
-                // 🔥 UPDATE: Added 'Common Subjects' and 'Common' handling
                 if (parsedStreams && parsedStreams.length > 0 && (parsedStreams.includes(activeStream) || parsedStreams.includes('Common Subjects') || parsedStreams.includes('Common'))) return true;
                 if (c.stream && (c.stream.includes(activeStream) || c.stream.includes('Common'))) return true;
                 return false;
             });
         }
 
-        // 🔥 UPDATE: Remove duplicates based on course name and filter out already paid subjects
         const uniqueCourses = [];
         const seenNames = new Set();
         for (let c of courses) {
@@ -132,10 +129,12 @@ const CourseDetailsScreen = ({ route, navigation }) => {
             }
         }
         return uniqueCourses;
-
     }, [selectedMonthGroup, activeStream, isSpecialFlow, groupPaidSubjects, fullPaidSubjects]);
 
-    const toggleSubject = (courseId) => setSelectedSubjects(prev => prev.includes(courseId) ? prev.filter(id => id !== courseId) : [...prev, courseId]);
+    const toggleSubject = (courseId) => {
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+        setSelectedSubjects(prev => prev.includes(courseId) ? prev.filter(id => id !== courseId) : [...prev, courseId]);
+    };
 
     useEffect(() => {
         try {
@@ -193,38 +192,60 @@ const CourseDetailsScreen = ({ route, navigation }) => {
         } catch (e) { Alert.alert("Error", "Could not parse installment steps."); }
     };
 
+    const changeStep = (newStep) => {
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+        setStep(newStep);
+    };
+
     const handleBack = () => {
         if (step === 1) navigation.goBack();
-        else if (step === 2) { if (isSpecialFlow) setStep(1); else navigation.goBack(); }
-        else if (step === 3) setStep(2);
-        else if (step === 4) setStep(3);
+        else if (step === 2) { if (isSpecialFlow) changeStep(1); else navigation.goBack(); }
+        else if (step === 3) changeStep(2);
+        else if (step === 4) changeStep(3);
         else if (step === 5) {
             if (autoSelect) navigation.goBack();
-            else { setStep(selectedPlan === 'full' ? 3 : 4); setSelectedSubjects([]); }
+            else { changeStep(selectedPlan === 'full' ? 3 : 4); setSelectedSubjects([]); }
         }
     };
 
     const getStepTitle = () => {
-        if (step === 1) return "Select Stream";
-        if (step === 2) return "Select Batch";
-        if (step === 3) return "Payment Type";
-        if (step === 4) return "Select Month";
-        return "Select Subjects";
+        if (step === 1) return "SELECT STREAM";
+        if (step === 2) return "SELECT BATCH";
+        if (step === 3) return "PAYMENT TYPE";
+        if (step === 4) return "SELECT MONTH";
+        return "SELECT SUBJECTS";
+    };
+
+    const getProgress = () => {
+        const totalSteps = 5;
+        return (step / totalSteps) * 100;
     };
 
     return (
         <View style={styles.container}>
-            <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} translucent={true} />
+            <StatusBar barStyle="light-content" backgroundColor="transparent" translucent={true} />
 
-            <View style={styles.redHeader}>
+            <LinearGradient colors={['#b92b27', '#1565C0']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.headerGradient}>
                 <View style={styles.headerTopRow}>
-                    <TouchableOpacity onPress={handleBack} style={styles.backBtn}><Icon name="arrow-left" size={24} color="white" /></TouchableOpacity>
+                    <TouchableOpacity onPress={handleBack} style={styles.backBtn}>
+                        <Icon name="arrow-left" size={24} color="white" />
+                    </TouchableOpacity>
                     <View style={{ flex: 1 }}>
                         <Text style={styles.headerCourseName} numberOfLines={1}>{businessData.name}</Text>
-                        <Text style={styles.stepIndicatorText}>{getStepTitle()}</Text>
+                        <View style={styles.stepBadge}>
+                            <Text style={styles.stepIndicatorText}>Step {step} • {getStepTitle()}</Text>
+                        </View>
                     </View>
                 </View>
-            </View>
+                
+                {/* Progress Bar */}
+                <View style={styles.progressContainer}>
+                    <View style={[styles.progressBar, { width: `${getProgress()}%` }]} />
+                </View>
+
+                {/* Decorative BG */}
+                <Icon name="school" size={140} color="rgba(255,255,255,0.05)" style={styles.headerWatermark} />
+            </LinearGradient>
 
             <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 120 }} showsVerticalScrollIndicator={false}>
 
@@ -232,14 +253,16 @@ const CourseDetailsScreen = ({ route, navigation }) => {
                     <View style={styles.animateFade}>
                         <Text style={styles.label}>Select Your Stream</Text>
                         {availableStreams.filter(s => s !== 'All').map((stream, idx) => (
-                            <TouchableOpacity key={idx} style={[styles.streamMainCard, { backgroundColor: idx % 2 === 0 ? '#B71C1C' : '#0D47A1', marginTop: idx > 0 ? 15 : 0 }]} onPress={() => { setActiveStream(stream); setStep(2); }}>
-                                <View style={styles.cardContent}>
-                                    <View>
-                                        <Text style={styles.streamTitle}>{stream}</Text>
-                                        <View style={styles.startBtn}><Text style={styles.startBtnText}>Select Stream <Icon name="chevron-right" size={14} /></Text></View>
+                            <TouchableOpacity key={idx} onPress={() => { setActiveStream(stream); changeStep(2); }}>
+                                <LinearGradient colors={idx % 2 === 0 ? ['#D32F2F', '#9A0007'] : ['#1976D2', '#004BA0']} start={{x:0, y:0}} end={{x:1, y:1}} style={[styles.streamMainCard, { marginTop: idx > 0 ? 15 : 0 }]}>
+                                    <View style={styles.cardContent}>
+                                        <View>
+                                            <Text style={styles.streamTitle}>{stream}</Text>
+                                            <View style={styles.startBtn}><Text style={styles.startBtnText}>Select Stream <Icon name="chevron-right" size={14} /></Text></View>
+                                        </View>
+                                        <Icon name={idx % 2 === 0 ? "palette" : "finance"} size={80} color="rgba(255,255,255,0.15)" style={styles.bgIcon} />
                                     </View>
-                                    <Icon name={idx % 2 === 0 ? "palette" : "finance"} size={80} color="rgba(255,255,255,0.15)" style={styles.bgIcon} />
-                                </View>
+                                </LinearGradient>
                             </TouchableOpacity>
                         ))}
                     </View>
@@ -247,45 +270,75 @@ const CourseDetailsScreen = ({ route, navigation }) => {
 
                 {step === 2 && (
                     <View style={styles.animateFade}>
-                        <Text style={styles.label}>Select Batch</Text>
+                        <Text style={styles.label}>Choose a Batch</Text>
                         {batches.length > 0 ? (
-                            batches.map(batch => (
-                                <TouchableOpacity key={batch.id} style={[styles.card, selectedBatch?.id === batch.id && styles.activeCard]} onPress={() => { setSelectedBatch(batch); setStep(3); }}>
-                                    {batch.logo && batch.logo !== 'default.png' ? <Image source={{ uri: `${IMAGE_URL}icons/${batch.logo}` }} style={styles.batchLogo} resizeMode="contain" /> : <View style={styles.iconBox}><Icon name="school" size={26} color={selectedBatch?.id === batch.id ? "white" : COLORS.primary} /></View>}
-                                    <View style={{ marginLeft: 15, flex: 1 }}>
-                                        <Text style={[styles.cardText, selectedBatch?.id === batch.id && { color: 'white' }]}>{batch.name}</Text>
-                                        <Text style={[styles.cardSubText, selectedBatch?.id === batch.id && { color: 'rgba(255,255,255,0.8)' }]}>Tap to continue</Text>
-                                    </View>
-                                    <Icon name="chevron-right" size={24} color={selectedBatch?.id === batch.id ? "white" : "#ccc"} />
-                                </TouchableOpacity>
-                            ))
+                            batches.map(batch => {
+                                const isSelected = selectedBatch?.id === batch.id;
+                                return (
+                                    <TouchableOpacity key={batch.id} style={[styles.modernCard, isSelected && styles.modernCardActive]} onPress={() => { setSelectedBatch(batch); changeStep(3); }}>
+                                        <View style={[styles.logoContainer, isSelected && styles.logoContainerActive]}>
+                                            {batch.logo && batch.logo !== 'default.png' ? 
+                                                <Image source={{ uri: `${IMAGE_URL}icons/${batch.logo}` }} style={styles.batchLogo} resizeMode="contain" /> 
+                                                : <Icon name="school" size={26} color={isSelected ? "white" : COLORS.primary} />}
+                                        </View>
+                                        <View style={{ marginLeft: 15, flex: 1 }}>
+                                            <Text style={styles.cardText}>{batch.name}</Text>
+                                            <Text style={styles.cardSubText}>Tap to select</Text>
+                                        </View>
+                                        <View style={[styles.checkCircle, isSelected && styles.checkCircleActive]}>
+                                            {isSelected && <Icon name="check" size={16} color="white" />}
+                                        </View>
+                                    </TouchableOpacity>
+                                );
+                            })
                         ) : <Text style={styles.emptyText}>No batches available.</Text>}
                     </View>
                 )}
 
                 {step === 3 && (
                     <View style={styles.animateFade}>
-                        <Text style={styles.label}>Select Payment Type</Text>
-                        <View style={styles.planRow}>
-                            <TouchableOpacity style={styles.planCardBig} onPress={() => {
-                                setSelectedPlan('full');
-                                const fullGroups = safeGroups.filter(g => g.type == 2 || String(g.name).toLowerCase().includes('full'));
-                                if (fullGroups.length === 0) {
-                                    if (safeGroups.length > 0) { setSelectedMonthGroup(safeGroups[0]); setStep(5); }
-                                    else { Alert.alert("Wait", "Subjects not configured yet."); return; }
-                                } else if (fullGroups.length === 1) { setSelectedMonthGroup(fullGroups[0]); setStep(5); }
-                                else { setStep(4); }
-                            }}>
-                                <View style={[styles.planIconCircle, { backgroundColor: '#FFFBE6' }]}><Icon name="lightning-bolt" size={40} color="#F59E0B" /></View>
-                                <Text style={styles.planTitleBig}>One-Time Payment</Text>
-                                <Text style={styles.planSubBig}>Get bundle discounts</Text>
-                            </TouchableOpacity>
+                        <Text style={styles.label}>Payment Plan</Text>
+                        
+                        <TouchableOpacity onPress={() => {
+                            setSelectedPlan('full');
+                            const fullGroups = safeGroups.filter(g => g.type == 2 || String(g.name).toLowerCase().includes('full'));
+                            if (fullGroups.length === 0) {
+                                if (safeGroups.length > 0) { setSelectedMonthGroup(safeGroups[0]); changeStep(5); }
+                                else { Alert.alert("Wait", "Subjects not configured yet."); return; }
+                            } else if (fullGroups.length === 1) { setSelectedMonthGroup(fullGroups[0]); changeStep(5); }
+                            else { changeStep(4); }
+                        }}>
+                            <LinearGradient colors={['#FFB75E', '#ED8F03']} start={{x:0, y:0}} end={{x:1, y:1}} style={styles.premiumCard}>
+                                <View style={styles.bestValueRibbon}><Text style={styles.ribbonText}>BEST VALUE</Text></View>
+                                <View style={styles.planIconWrapper}>
+                                    <Icon name="lightning-bolt" size={32} color="#ED8F03" />
+                                </View>
+                                <View style={{flex: 1, marginLeft: 15}}>
+                                    <Text style={styles.premiumTitle}>One-Time Payment</Text>
+                                    <Text style={styles.premiumSub}>Unlock all bundle discounts & offers</Text>
+                                </View>
+                                <Icon name="chevron-right" size={24} color="rgba(255,255,255,0.8)" />
+                            </LinearGradient>
+                        </TouchableOpacity>
 
-                            <TouchableOpacity style={styles.planCardBig} onPress={() => { setSelectedPlan('monthly'); setStep(4); }}>
-                                <View style={[styles.planIconCircle, { backgroundColor: '#FEF2F2' }]}><Icon name="calendar-refresh" size={40} color={COLORS.primary} /></View>
-                                <Text style={styles.planTitleBig}>Monthly Payment</Text>
-                                <Text style={styles.planSubBig}>Pay month by month</Text>
-                            </TouchableOpacity>
+                        <TouchableOpacity onPress={() => { setSelectedPlan('monthly'); changeStep(4); }}>
+                            <LinearGradient colors={['#1E3C72', '#2A5298']} start={{x:0, y:0}} end={{x:1, y:1}} style={styles.premiumCard}>
+                                <View style={styles.planIconWrapper}>
+                                    <Icon name="calendar-month-outline" size={32} color="#1E3C72" />
+                                </View>
+                                <View style={{flex: 1, marginLeft: 15}}>
+                                    <Text style={styles.premiumTitle}>Monthly Payment</Text>
+                                    <Text style={styles.premiumSub}>Pay month-by-month</Text>
+                                </View>
+                                <Icon name="chevron-right" size={24} color="rgba(255,255,255,0.8)" />
+                            </LinearGradient>
+                        </TouchableOpacity>
+
+                        <View style={styles.perksBox}>
+                            <Text style={styles.perksTitle}>Why choose Full Payment?</Text>
+                            <View style={styles.perkRow}><Icon name="check-decagram" size={20} color="#10B981" /><Text style={styles.perkText}>Exclusive Bundle Discounts</Text></View>
+                            <View style={styles.perkRow}><Icon name="check-decagram" size={20} color="#10B981" /><Text style={styles.perkText}>No monthly interruptions</Text></View>
+                            <View style={styles.perkRow}><Icon name="check-decagram" size={20} color="#10B981" /><Text style={styles.perkText}>Premium Study Materials & Offline Access</Text></View>
                         </View>
                     </View>
                 )}
@@ -294,9 +347,9 @@ const CourseDetailsScreen = ({ route, navigation }) => {
                     <View style={styles.animateFade}>
                         <Text style={styles.label}>Select {selectedPlan === 'monthly' ? 'Month' : 'Group'}</Text>
                         {safeGroups.filter(g => selectedPlan === 'monthly' ? g.type == 1 : g.type != 1).map(group => (
-                            <TouchableOpacity key={group.id} style={styles.card} onPress={() => { setSelectedMonthGroup(group); setStep(5); }}>
-                                <View style={[styles.iconBox, { backgroundColor: '#e3f2fd' }]}><Icon name="calendar-month" size={24} color="#2563EB" /></View>
-                                <Text style={styles.cardText}>{group.name}</Text>
+                            <TouchableOpacity key={group.id} style={styles.modernCard} onPress={() => { setSelectedMonthGroup(group); changeStep(5); }}>
+                                <View style={styles.logoContainer}><Icon name="calendar-month" size={24} color={COLORS.primary} /></View>
+                                <Text style={[styles.cardText, {marginLeft: 15, flex: 1}]}>{group.name}</Text>
                                 <Icon name="chevron-right" size={24} color="#ccc" />
                             </TouchableOpacity>
                         ))}
@@ -306,17 +359,13 @@ const CourseDetailsScreen = ({ route, navigation }) => {
 
                 {step === 5 && (
                     <View style={styles.animateFade}>
-
                         {selectedMonthGroup && (
-                            <View style={{ backgroundColor: '#e3f2fd', padding: 12, borderRadius: 10, marginBottom: 15, flexDirection: 'row', alignItems: 'center' }}>
-                                <Icon name="calendar-month" size={20} color="#2563EB" style={{ marginRight: 8 }} />
-                                <Text style={{ color: '#1E3A8A', fontWeight: 'bold', fontSize: 14 }}>
-                                    Paying for: {selectedMonthGroup.name}
-                                </Text>
+                            <View style={styles.floatingChip}>
+                                <Icon name="calendar-check" size={18} color="white" style={{ marginRight: 8 }} />
+                                <Text style={styles.floatingChipText}>Paying for: {selectedMonthGroup.name}</Text>
                             </View>
                         )}
 
-                        {/* 🔥 UPDATE: Use showStreamFilter logic */}
                         {showStreamFilter && (
                             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 20 }}>
                                 {availableStreams.map(stream => (
@@ -331,20 +380,18 @@ const CourseDetailsScreen = ({ route, navigation }) => {
                         <Text style={[styles.label, { marginTop: 0 }]}>Select Subjects</Text>
 
                         {isDiscountApplied && (
-                            <View style={styles.discountBanner}>
-                                <View style={styles.discountIconBox}><Icon name="tag-heart" size={24} color="#10B981" /></View>
+                            <LinearGradient colors={['#10B981', '#059669']} start={{x:0, y:0}} end={{x:1, y:1}} style={styles.discountBannerNew}>
+                                <Icon name="ticket-percent" size={28} color="white" />
                                 <View style={{ marginLeft: 12, flex: 1 }}>
-                                    <Text style={styles.discountTitle}>Bundle Discount Applied!</Text>
-                                    <Text style={styles.discountSub}>You are saving money on selected subjects.</Text>
+                                    <Text style={styles.discountTitleNew}>Bundle Discount Applied!</Text>
+                                    <Text style={styles.discountSubNew}>Special pricing unlocked for selected subjects.</Text>
                                 </View>
-                            </View>
+                            </LinearGradient>
                         )}
 
                         {filteredSubjects.length > 0 ? (
                             filteredSubjects.map(sub => {
                                 const isSelected = selectedSubjects.includes(sub.id);
-                                // Since we filter out already paid subjects now, this is technically always false. 
-                                // But just in case, we'll map it to the correct group-specific logic instead of the global enrolledSubjects.
                                 const isAlreadyPaid = (groupPaidSubjects[selectedMonthGroup?.id] || []).includes(sub.id) || fullPaidSubjects.includes(sub.id);
                                 const dPrice = parseFloat(activeDiscountPrice || sub.price || 0);
                                 const normalPrice = parseFloat(sub.price || 0);
@@ -365,52 +412,53 @@ const CourseDetailsScreen = ({ route, navigation }) => {
 
                                 const validLecturerName = sub.lecturerName && sub.lecturerName.trim().toUpperCase() !== 'TBA' && sub.lecturerName.trim().length > 0;
                                 const hasValidImage = courseImage && courseImage !== 'null' && courseImage !== 'default.png' && courseImage.trim() !== '';
-                                const showLecturerRow = validLecturerName || hasValidImage;
 
                                 return (
                                     <TouchableOpacity
                                         key={sub.id}
                                         disabled={isAlreadyPaid}
-                                        style={[styles.subCard, isSelected && styles.subCardActive, isAlreadyPaid && styles.subCardDisabled]}
+                                        style={[styles.subjectCard, isSelected && styles.subjectCardActive, isAlreadyPaid && styles.subjectCardDisabled]}
                                         onPress={() => toggleSubject(sub.id)}
+                                        activeOpacity={0.8}
                                     >
-                                        <Icon name={isSelected || isAlreadyPaid ? "checkbox-marked-circle" : "checkbox-blank-circle-outline"} size={26} color={isAlreadyPaid ? "#9CA3AF" : isSelected ? COLORS.primary : "#D1D5DB"} />
-
-                                        <View style={{ flex: 1, marginLeft: 12 }}>
-                                            <Text style={[styles.subName, isAlreadyPaid && { color: '#6B7280' }]} numberOfLines={2}>{sub.name}</Text>
-                                            {sub.code && <Text style={styles.subCode} numberOfLines={1}>{sub.code}</Text>}
-
-                                            {showLecturerRow && (
-                                                <View style={styles.lecturerRow}>
-                                                    {hasValidImage ? (
-                                                        <Image source={{ uri: `${IMAGE_URL}icons/${courseImage}` }} style={styles.lecturerImage} />
-                                                    ) : (
-                                                        <View style={styles.lecturerIconBox}><Icon name="account" size={20} color="#9CA3AF" /></View>
-                                                    )}
-                                                    {validLecturerName && <Text style={styles.lecturerName} numberOfLines={1}>{sub.lecturerName}</Text>}
+                                        <View style={{ flex: 1 }}>
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+                                                {hasValidImage ? (
+                                                    <Image source={{ uri: `${IMAGE_URL}icons/${courseImage}` }} style={styles.lecturerAvatar} />
+                                                ) : (
+                                                    <View style={styles.lecturerAvatarPlaceholder}><Icon name="account" size={16} color="#9CA3AF" /></View>
+                                                )}
+                                                <Text style={styles.subLecturerName} numberOfLines={1}>{validLecturerName ? sub.lecturerName : 'TBA'}</Text>
+                                            </View>
+                                            
+                                            <Text style={[styles.subName, isAlreadyPaid && { color: '#9CA3AF' }]} numberOfLines={2}>{sub.name}</Text>
+                                            
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10 }}>
+                                                <View style={[styles.priceTag, isSelected && styles.priceTagActive]}>
+                                                    <Text style={[styles.subPrice, isSelected && {color: 'white'}]}>Rs. {displayPrice.toLocaleString()}</Text>
                                                 </View>
-                                            )}
-
+                                                {isDiscountApplied && !sub.isDiscountExcluded && activeDiscountPrice && !isAlreadyPaid && (
+                                                    <Text style={styles.strikePrice}>Rs. {normalPrice.toLocaleString()}</Text>
+                                                )}
+                                            </View>
+                                            
                                             {isAlreadyPaid && (
                                                 <View style={styles.alreadyPaidBadge}>
-                                                    <Icon name="check-circle" size={12} color="#10B981" />
-                                                    <Text style={styles.alreadyPaidText}>ALREADY ENROLLED</Text>
+                                                    <Icon name="check-circle" size={12} color="#059669" />
+                                                    <Text style={styles.alreadyPaidText}>ENROLLED</Text>
                                                 </View>
                                             )}
                                         </View>
 
-                                        <View style={{ alignItems: 'flex-end', justifyContent: 'center', minWidth: 80, marginLeft: 10 }}>
-                                            {isDiscountApplied && !sub.isDiscountExcluded && activeDiscountPrice && !isAlreadyPaid && (
-                                                <Text style={styles.strikePrice}>Rs. {normalPrice.toLocaleString()}</Text>
-                                            )}
-                                            <Text style={[styles.subPrice, isAlreadyPaid && { color: '#9CA3AF' }]}>Rs. {displayPrice.toLocaleString()}</Text>
+                                        <View style={[styles.checkCircleLarge, isSelected && styles.checkCircleLargeActive]}>
+                                            {isSelected && <Icon name="check" size={20} color="white" />}
                                         </View>
                                     </TouchableOpacity>
                                 );
                             })
                         ) : (
                             <View style={{ alignItems: 'center', marginTop: 40 }}>
-                                <Icon name="file-document-outline" size={60} color="#ddd" />
+                                <Icon name="text-box-search-outline" size={80} color="#E5E7EB" />
                                 <Text style={styles.emptyText}>No subjects found.</Text>
                             </View>
                         )}
@@ -419,62 +467,68 @@ const CourseDetailsScreen = ({ route, navigation }) => {
             </ScrollView>
 
             {step === 5 && (
-                <View style={styles.footer}>
+                <View style={styles.glassFooter}>
                     <View>
                         <Text style={styles.totalLabel}>TOTAL PAYABLE</Text>
                         <Text style={styles.totalText}>Rs. {totalAmount.toLocaleString()}</Text>
                     </View>
-                    <TouchableOpacity style={[styles.payBtn, (totalAmount === 0 || loading) && { backgroundColor: '#E5E7EB', shadowOpacity: 0 }]} disabled={totalAmount === 0 || loading} onPress={proceedToPayment}>
-                        {loading ? <ActivityIndicator color="white" /> : <Text style={[styles.payBtnText, totalAmount === 0 && { color: '#9CA3AF' }]}>PROCEED <Icon name="arrow-right" size={18} /></Text>}
+                    <TouchableOpacity disabled={totalAmount === 0 || loading} onPress={proceedToPayment} style={{width: 140}}>
+                        <LinearGradient 
+                            colors={totalAmount === 0 ? ['#D1D5DB', '#9CA3AF'] : [COLORS.primary, '#9A0007']} 
+                            start={{x:0, y:0}} end={{x:1, y:1}} 
+                            style={styles.payBtnGradient}
+                        >
+                            {loading ? <ActivityIndicator color="white" /> : <Text style={styles.payBtnText}>PROCEED <Icon name="arrow-right" size={18} /></Text>}
+                        </LinearGradient>
                     </TouchableOpacity>
                 </View>
             )}
 
-            <Modal visible={showInstallmentModal} transparent={true} animationType="slide">
+            <Modal visible={showInstallmentModal} transparent={true} animationType="fade">
                 <View style={styles.modalOverlay}>
                     <View style={styles.modalContent}>
                         <TouchableOpacity style={styles.closeModalBtn} onPress={() => setShowInstallmentModal(false)}><Icon name="close" size={20} color="#666" /></TouchableOpacity>
 
-                        <View style={{ alignItems: 'center', marginBottom: 20 }}>
-                            <Icon name="shield-check" size={50} color={COLORS.primary} />
+                        <View style={{ alignItems: 'center', marginBottom: 25, marginTop: 10 }}>
+                            <View style={styles.modalShieldIcon}>
+                                <Icon name="shield-check" size={40} color={COLORS.primary} />
+                            </View>
                             <Text style={styles.modalTitle}>Payment Options</Text>
-                            <Text style={styles.modalSubTitle}>Choose how you want to pay</Text>
+                            <Text style={styles.modalSubTitle}>Choose how you want to proceed with payment</Text>
                         </View>
 
                         <TouchableOpacity style={styles.modalBtnOutline} onPress={handlePayFullAmount}>
-                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                <View style={styles.modalIconBox}><Icon name="cash-check" size={26} color={COLORS.primary} /></View>
-                                <View style={{ marginLeft: 15 }}>
-                                    <Text style={{ fontWeight: '900', color: '#1A1A1A', fontSize: 15 }}>Pay Full Amount</Text>
-                                    <Text style={{ color: '#666', fontSize: 12, fontWeight: '700', marginTop: 2 }}>Pay Rs. {totalAmount.toLocaleString()} at once</Text>
-                                </View>
+                            <View style={styles.modalIconBox}><Icon name="cash-check" size={26} color={COLORS.primary} /></View>
+                            <View style={{ flex: 1, marginLeft: 15 }}>
+                                <Text style={{ fontWeight: '900', color: '#1A1A1A', fontSize: 16 }}>Pay Full Amount</Text>
+                                <Text style={{ color: '#666', fontSize: 13, fontWeight: '700', marginTop: 2 }}>Pay Rs. {totalAmount.toLocaleString()} securely</Text>
                             </View>
                             <Icon name="chevron-right" size={24} color="#ccc" />
                         </TouchableOpacity>
 
-                        <TouchableOpacity style={styles.modalBtnSolid} onPress={handlePayInstallmentAmount}>
-                            <View style={{ flex: 1 }}>
+                        <TouchableOpacity onPress={handlePayInstallmentAmount}>
+                            <LinearGradient colors={['#1E3A8A', '#3B82F6']} start={{x:0, y:0}} end={{x:1, y:1}} style={styles.modalBtnSolid}>
                                 <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 15 }}>
                                     <Icon name="calendar-clock" size={24} color="white" />
                                     <Text style={{ fontWeight: '900', color: 'white', fontSize: 16, marginLeft: 10 }}>Pay in Installments</Text>
                                 </View>
 
-                                <View style={{ backgroundColor: 'rgba(255,255,255,0.15)', padding: 12, borderRadius: 12, marginBottom: 15 }}>
+                                <View style={{ backgroundColor: 'rgba(255,255,255,0.15)', padding: 15, borderRadius: 12, marginBottom: 15 }}>
                                     {availableInstallmentPlan && JSON.parse(availableInstallmentPlan.details).map((inst, index) => {
                                         let suffix = index === 0 ? 'st' : index === 1 ? 'nd' : index === 2 ? 'rd' : 'th';
                                         return (
-                                            <View key={index} style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
+                                            <View key={index} style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
                                                 <Text style={{ color: 'rgba(255,255,255,0.9)', fontSize: 13, fontWeight: '700' }}>{index + 1}{suffix} Phase</Text>
-                                                <Text style={{ color: 'white', fontSize: 14, fontWeight: '900' }}>Rs. {parseFloat(inst.amount).toLocaleString()}</Text>
+                                                <Text style={{ color: 'white', fontSize: 15, fontWeight: '900' }}>Rs. {parseFloat(inst.amount).toLocaleString()}</Text>
                                             </View>
                                         );
                                     })}
                                 </View>
-
-                                <View style={{ backgroundColor: 'white', padding: 10, borderRadius: 10, alignItems: 'center' }}>
-                                    <Text style={{ color: COLORS.primary, fontWeight: '900', fontSize: 13, textTransform: 'uppercase', letterSpacing: 0.5 }}>Pay 1st Installment Now</Text>
+                                
+                                <View style={{ backgroundColor: 'white', padding: 12, borderRadius: 10, alignItems: 'center' }}>
+                                    <Text style={{ color: '#1E3A8A', fontWeight: '900', fontSize: 13, textTransform: 'uppercase', letterSpacing: 0.5 }}>Pay 1st Installment Now</Text>
                                 </View>
-                            </View>
+                            </LinearGradient>
                         </TouchableOpacity>
                     </View>
                 </View>
@@ -486,66 +540,102 @@ const CourseDetailsScreen = ({ route, navigation }) => {
 const STATUSBAR_HEIGHT = Platform.OS === 'ios' ? 50 : StatusBar.currentHeight || 24;
 
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: '#F5F7FA' },
-    redHeader: { backgroundColor: COLORS.primary, paddingHorizontal: 20, paddingBottom: 25, paddingTop: STATUSBAR_HEIGHT + 10, borderBottomLeftRadius: 35, borderBottomRightRadius: 35, elevation: 8, zIndex: 10, shadowColor: COLORS.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 10 },
-    headerTopRow: { flexDirection: 'row', alignItems: 'center' },
-    backBtn: { marginRight: 15, padding: 8, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 12 },
+    container: { flex: 1, backgroundColor: '#F8FAFC' },
+    
+    // Header Styles
+    headerGradient: { paddingHorizontal: 20, paddingBottom: 25, paddingTop: STATUSBAR_HEIGHT + 15, borderBottomLeftRadius: 35, borderBottomRightRadius: 35, elevation: 10, overflow: 'hidden' },
+    headerTopRow: { flexDirection: 'row', alignItems: 'center', zIndex: 2 },
+    backBtn: { marginRight: 15, width: 40, height: 40, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 20, justifyContent: 'center', alignItems: 'center' },
     headerCourseName: { fontSize: 22, fontWeight: '900', color: 'white', letterSpacing: 0.5 },
-    stepIndicatorText: { color: 'rgba(255,255,255,0.8)', fontSize: 13, fontWeight: '700', marginTop: 2, textTransform: 'uppercase', letterSpacing: 1 },
-    label: { fontSize: 16, fontWeight: '900', color: '#1A1A1A', marginBottom: 15, marginTop: 10, textTransform: 'uppercase', letterSpacing: 0.5 },
-    emptyText: { textAlign: 'center', marginTop: 20, color: '#999', fontWeight: 'bold' },
-    streamMainCard: { height: 120, borderRadius: 20, overflow: 'hidden', elevation: 4, padding: 20, justifyContent: 'center' },
+    stepBadge: { backgroundColor: 'rgba(255,255,255,0.2)', paddingHorizontal: 12, paddingVertical: 4, borderRadius: 12, alignSelf: 'flex-start', marginTop: 8 },
+    stepIndicatorText: { color: 'white', fontSize: 11, fontWeight: '800', letterSpacing: 1 },
+    headerWatermark: { position: 'absolute', right: -20, top: 10, zIndex: 1, transform: [{rotate: '-15deg'}] },
+    progressContainer: { height: 4, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 2, marginTop: 20, zIndex: 2 },
+    progressBar: { height: '100%', backgroundColor: 'white', borderRadius: 2 },
+
+    label: { fontSize: 14, fontWeight: '900', color: '#64748B', marginBottom: 15, marginTop: 10, textTransform: 'uppercase', letterSpacing: 1 },
+    emptyText: { textAlign: 'center', marginTop: 15, color: '#94A3B8', fontWeight: 'bold', fontSize: 16 },
+    
+    // Step 1: Stream Cards
+    streamMainCard: { height: 130, borderRadius: 24, overflow: 'hidden', elevation: 6, padding: 20, justifyContent: 'center', shadowColor: '#000', shadowOffset: {width:0, height:4}, shadowOpacity: 0.2, shadowRadius: 8 },
     cardContent: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-    streamTitle: { color: 'white', fontSize: 22, fontWeight: '900', marginBottom: 10 },
-    startBtn: { backgroundColor: 'rgba(255,255,255,0.25)', alignSelf: 'flex-start', paddingHorizontal: 15, paddingVertical: 6, borderRadius: 15 },
-    startBtnText: { color: 'white', fontWeight: '800', fontSize: 12 },
-    bgIcon: { position: 'absolute', right: -10, bottom: -15, opacity: 0.5 },
-    card: { backgroundColor: 'white', padding: 15, borderRadius: 20, marginBottom: 12, flexDirection: 'row', alignItems: 'center', elevation: 2, borderWidth: 1, borderColor: '#F0F0F0' },
-    activeCard: { backgroundColor: COLORS.primary, borderColor: COLORS.primary, elevation: 5 },
-    cardText: { fontSize: 16, fontWeight: '800', color: '#1A1A1A', marginBottom: 2 },
-    cardSubText: { fontSize: 12, color: '#999', fontWeight: '600' },
-    batchLogo: { width: 45, height: 45, borderRadius: 10 },
-    iconBox: { width: 45, height: 45, borderRadius: 12, backgroundColor: '#F0F4FF', justifyContent: 'center', alignItems: 'center' },
-    planRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 5 },
-    planCardBig: { width: '48%', backgroundColor: 'white', paddingVertical: 25, paddingHorizontal: 15, borderRadius: 25, alignItems: 'center', elevation: 3, borderWidth: 1, borderColor: '#F0F0F0' },
-    planIconCircle: { width: 65, height: 65, borderRadius: 33, justifyContent: 'center', alignItems: 'center', marginBottom: 12 },
-    planTitleBig: { fontWeight: '900', textAlign: 'center', color: '#1A1A1A', fontSize: 14, marginBottom: 4 },
-    planSubBig: { fontSize: 10, color: '#888', fontWeight: '600', textAlign: 'center' },
-    streamChip: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, marginRight: 10, borderWidth: 1, backgroundColor: 'white', borderColor: '#E5E7EB', elevation: 1 },
-    streamChipActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary, elevation: 3 },
-    discountBanner: { backgroundColor: '#ECFDF5', padding: 15, borderRadius: 16, marginBottom: 15, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#10B981', borderStyle: 'dashed' },
-    discountIconBox: { backgroundColor: '#D1FAE5', padding: 8, borderRadius: 12 },
-    discountTitle: { color: '#047857', fontWeight: '900', fontSize: 14 },
-    discountSub: { color: '#059669', fontSize: 11, fontWeight: '700', marginTop: 2 },
+    streamTitle: { color: 'white', fontSize: 24, fontWeight: '900', marginBottom: 12 },
+    startBtn: { backgroundColor: 'rgba(255,255,255,0.25)', alignSelf: 'flex-start', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20 },
+    startBtnText: { color: 'white', fontWeight: '800', fontSize: 13 },
+    bgIcon: { position: 'absolute', right: -10, bottom: -15 },
+    
+    // Step 2 & 4: Modern Cards
+    modernCard: { backgroundColor: 'white', padding: 16, borderRadius: 20, marginBottom: 14, flexDirection: 'row', alignItems: 'center', elevation: 2, shadowColor: '#94A3B8', shadowOffset: {width:0, height:2}, shadowOpacity: 0.1, shadowRadius: 5 },
+    modernCardActive: { backgroundColor: '#F0F9FF', borderColor: '#38BDF8', borderWidth: 1.5, elevation: 4 },
+    logoContainer: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#F1F5F9', justifyContent: 'center', alignItems: 'center' },
+    logoContainerActive: { backgroundColor: 'white' },
+    batchLogo: { width: 40, height: 40, borderRadius: 20 },
+    cardText: { fontSize: 16, fontWeight: '800', color: '#1E293B', marginBottom: 4 },
+    cardSubText: { fontSize: 12, color: '#64748B', fontWeight: '600' },
+    checkCircle: { width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: '#CBD5E1', justifyContent: 'center', alignItems: 'center' },
+    checkCircleActive: { backgroundColor: '#38BDF8', borderColor: '#38BDF8' },
 
-    subCard: { backgroundColor: 'white', padding: 16, borderRadius: 18, marginBottom: 12, flexDirection: 'row', alignItems: 'center', elevation: 1, borderWidth: 1, borderColor: '#F3F4F6' },
-    subCardActive: { borderColor: COLORS.primary, backgroundColor: '#FEF2F2', borderWidth: 2, elevation: 3 },
-    subCardDisabled: { backgroundColor: '#F9FAFB', borderColor: '#E5E7EB', opacity: 0.8 },
-    subName: { fontSize: 15, fontWeight: '800', color: '#1A1A1A', lineHeight: 20 },
-    subCode: { fontSize: 10, color: '#6B7280', fontWeight: '700', marginTop: 4, letterSpacing: 0.5 },
+    // Step 3: Payment Plan Cards
+    premiumCard: { padding: 20, borderRadius: 24, marginBottom: 16, flexDirection: 'row', alignItems: 'center', elevation: 6, shadowColor: '#000', shadowOffset: {width:0, height:4}, shadowOpacity: 0.2, shadowRadius: 8 },
+    planIconWrapper: { width: 60, height: 60, borderRadius: 30, backgroundColor: 'white', justifyContent: 'center', alignItems: 'center' },
+    premiumTitle: { color: 'white', fontSize: 18, fontWeight: '900', marginBottom: 4 },
+    premiumSub: { color: 'rgba(255,255,255,0.9)', fontSize: 12, fontWeight: '600' },
+    bestValueRibbon: { position: 'absolute', top: 0, right: 20, backgroundColor: '#EF4444', paddingHorizontal: 12, paddingVertical: 4, borderBottomLeftRadius: 8, borderBottomRightRadius: 8 },
+    ribbonText: { color: 'white', fontSize: 10, fontWeight: '900', letterSpacing: 0.5 },
+    
+    perksBox: { backgroundColor: 'white', padding: 20, borderRadius: 20, marginTop: 10, elevation: 2 },
+    perksTitle: { fontSize: 15, fontWeight: '900', color: '#1E293B', marginBottom: 15 },
+    perkRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
+    perkText: { marginLeft: 10, fontSize: 13, color: '#475569', fontWeight: '700' },
 
-    lecturerRow: { flexDirection: 'row', alignItems: 'center', marginTop: 10 },
-    lecturerImage: { width: 34, height: 34, borderRadius: 17, borderWidth: 1, borderColor: '#E5E7EB', backgroundColor: '#F3F4F6' },
-    lecturerIconBox: { width: 34, height: 34, borderRadius: 17, backgroundColor: '#F3F4F6', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#E5E7EB' },
-    lecturerName: { flex: 1, fontSize: 12, color: '#4B5563', fontWeight: '800', marginLeft: 8 },
+    // Step 5: Subjects
+    floatingChip: { backgroundColor: '#3B82F6', alignSelf: 'flex-start', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, flexDirection: 'row', alignItems: 'center', marginBottom: 20, elevation: 3 },
+    floatingChipText: { color: 'white', fontWeight: '800', fontSize: 13 },
+    streamChip: { paddingHorizontal: 18, paddingVertical: 10, borderRadius: 25, marginRight: 10, backgroundColor: 'white', elevation: 2, marginBottom: 5 },
+    streamChipActive: { backgroundColor: '#1E293B', elevation: 4 },
+    
+    discountBannerNew: { padding: 16, borderRadius: 20, marginBottom: 20, flexDirection: 'row', alignItems: 'center', elevation: 4 },
+    discountTitleNew: { color: 'white', fontWeight: '900', fontSize: 15 },
+    discountSubNew: { color: 'rgba(255,255,255,0.9)', fontSize: 12, fontWeight: '700', marginTop: 2 },
 
-    alreadyPaidBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#D1FAE5', alignSelf: 'flex-start', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 6, marginTop: 8 },
-    alreadyPaidText: { color: '#047857', fontSize: 9, fontWeight: '900', letterSpacing: 0.5, marginLeft: 3 },
-    strikePrice: { textDecorationLine: 'line-through', color: '#9CA3AF', fontSize: 11, fontWeight: '800', marginBottom: 2 },
-    subPrice: { fontWeight: '900', color: COLORS.primary, fontSize: 16 },
-    footer: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 20, paddingBottom: Platform.OS === 'ios' ? 30 : 20, backgroundColor: 'white', borderTopLeftRadius: 30, borderTopRightRadius: 30, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', elevation: 15, shadowColor: '#000', shadowOffset: { width: 0, height: -5 }, shadowOpacity: 0.1, shadowRadius: 10, zIndex: 50 },
-    totalLabel: { fontSize: 11, color: '#6B7280', fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2 },
-    totalText: { fontSize: 22, fontWeight: '900', color: '#1A1A1A' },
-    payBtn: { backgroundColor: COLORS.primary, paddingVertical: 14, paddingHorizontal: 25, borderRadius: 14, flexDirection: 'row', alignItems: 'center', elevation: 5, shadowColor: COLORS.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 5 },
+    subjectCard: { backgroundColor: 'white', padding: 18, borderRadius: 24, marginBottom: 15, flexDirection: 'row', alignItems: 'center', elevation: 3, shadowColor: '#64748B', shadowOffset: {width:0, height:3}, shadowOpacity: 0.1, shadowRadius: 6 },
+    subjectCardActive: { borderColor: COLORS.primary, backgroundColor: '#FFF5F5', borderWidth: 2, elevation: 5 },
+    subjectCardDisabled: { backgroundColor: '#F8FAFC', opacity: 0.7, elevation: 0 },
+    
+    subName: { fontSize: 16, fontWeight: '900', color: '#1E293B', lineHeight: 22 },
+    lecturerAvatar: { width: 24, height: 24, borderRadius: 12, marginRight: 8, backgroundColor: '#E2E8F0' },
+    lecturerAvatarPlaceholder: { width: 24, height: 24, borderRadius: 12, marginRight: 8, backgroundColor: '#F1F5F9', justifyContent: 'center', alignItems: 'center' },
+    subLecturerName: { fontSize: 12, color: '#64748B', fontWeight: '800' },
+    
+    priceTag: { backgroundColor: '#F1F5F9', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12, alignSelf: 'flex-start', marginRight: 10 },
+    priceTagActive: { backgroundColor: COLORS.primary },
+    subPrice: { fontWeight: '900', color: '#1E293B', fontSize: 15 },
+    strikePrice: { textDecorationLine: 'line-through', color: '#94A3B8', fontSize: 12, fontWeight: '800' },
+    
+    checkCircleLarge: { width: 28, height: 28, borderRadius: 14, borderWidth: 2, borderColor: '#CBD5E1', justifyContent: 'center', alignItems: 'center', marginLeft: 15 },
+    checkCircleLargeActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary, transform: [{scale: 1.1}] },
+    
+    alreadyPaidBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#D1FAE5', alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, marginTop: 10 },
+    alreadyPaidText: { color: '#059669', fontSize: 10, fontWeight: '900', letterSpacing: 0.5, marginLeft: 4 },
+
+    // Footer
+    glassFooter: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 20, paddingBottom: Platform.OS === 'ios' ? 30 : 20, backgroundColor: 'rgba(255,255,255,0.95)', borderTopLeftRadius: 30, borderTopRightRadius: 30, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', elevation: 20, shadowColor: '#000', shadowOffset: { width: 0, height: -10 }, shadowOpacity: 0.1, shadowRadius: 15 },
+    totalLabel: { fontSize: 12, color: '#64748B', fontWeight: '900', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2 },
+    totalText: { fontSize: 24, fontWeight: '900', color: '#0F172A' },
+    payBtnGradient: { paddingVertical: 15, borderRadius: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', elevation: 6 },
     payBtnText: { color: 'white', fontWeight: '900', fontSize: 15, marginRight: 6, letterSpacing: 0.5 },
-    modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
-    modalContent: { backgroundColor: 'white', borderTopLeftRadius: 35, borderTopRightRadius: 35, padding: 25, paddingBottom: 40, elevation: 20 },
-    closeModalBtn: { position: 'absolute', top: 15, right: 15, padding: 10, backgroundColor: '#F3F4F6', borderRadius: 15, zIndex: 10 },
-    modalTitle: { fontSize: 22, fontWeight: '900', color: '#1A1A1A', marginTop: 10 },
-    modalSubTitle: { fontSize: 12, color: '#6B7280', fontWeight: '700', marginTop: 5 },
-    modalBtnOutline: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 2, borderColor: '#F3F4F6', backgroundColor: '#F9FAFB', padding: 16, borderRadius: 20, marginBottom: 12 },
-    modalIconBox: { width: 45, height: 45, borderRadius: 12, backgroundColor: '#FEE2E2', justifyContent: 'center', alignItems: 'center' },
-    modalBtnSolid: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: COLORS.primary, padding: 20, borderRadius: 20, elevation: 5, shadowColor: COLORS.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3 }
+
+    // Modal
+    modalOverlay: { flex: 1, backgroundColor: 'rgba(15,23,42,0.7)', justifyContent: 'flex-end' },
+    modalContent: { backgroundColor: 'white', borderTopLeftRadius: 40, borderTopRightRadius: 40, padding: 25, paddingBottom: Platform.OS === 'ios' ? 40 : 25, elevation: 20 },
+    closeModalBtn: { position: 'absolute', top: 20, right: 20, width: 40, height: 40, backgroundColor: '#F1F5F9', borderRadius: 20, justifyContent: 'center', alignItems: 'center', zIndex: 10 },
+    modalShieldIcon: { width: 80, height: 80, borderRadius: 40, backgroundColor: '#F0F9FF', justifyContent: 'center', alignItems: 'center', marginBottom: 15 },
+    modalTitle: { fontSize: 24, fontWeight: '900', color: '#0F172A' },
+    modalSubTitle: { fontSize: 13, color: '#64748B', fontWeight: '700', marginTop: 6 },
+    
+    modalBtnOutline: { flexDirection: 'row', alignItems: 'center', borderWidth: 2, borderColor: '#E2E8F0', backgroundColor: '#F8FAFC', padding: 18, borderRadius: 24, marginBottom: 15 },
+    modalIconBox: { width: 50, height: 50, borderRadius: 16, backgroundColor: '#DBEAFE', justifyContent: 'center', alignItems: 'center' },
+    modalBtnSolid: { padding: 20, borderRadius: 24, elevation: 8, shadowColor: '#1E3A8A', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.3, shadowRadius: 8 }
 });
 
 export default CourseDetailsScreen;
