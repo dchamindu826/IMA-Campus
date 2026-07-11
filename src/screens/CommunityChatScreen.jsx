@@ -12,11 +12,11 @@ const DP_IMAGES = Array.from({ length: 20 }, (_, i) => `${(i + 1).toString().pad
 const CommunityChatScreen = ({ route, navigation }) => {
     const { businessId, businessName } = route.params || {};
     const { userInfo, userToken } = useContext(AuthContext);
-    
+
     const [messages, setMessages] = useState([]);
     const [newMessage, setNewMessage] = useState("");
     const [isLocked, setIsLocked] = useState(false);
-    
+
     // Profile State
     const [showProfileSetup, setShowProfileSetup] = useState(false);
     const [tempUsername, setTempUsername] = useState("");
@@ -45,7 +45,7 @@ const CommunityChatScreen = ({ route, navigation }) => {
 
     const checkProfile = async () => {
         try {
-            const res = await api.get('/mobile/chat/profile');
+            const res = await api.get('mobile/chat/profile');
             if (res.data.profile.appChatUsername) {
                 setChatProfile({ username: res.data.profile.appChatUsername, dp: res.data.profile.appChatDp });
                 initChat();
@@ -63,7 +63,7 @@ const CommunityChatScreen = ({ route, navigation }) => {
             return;
         }
         try {
-            const res = await api.post('/mobile/chat/profile', { username: tempUsername, dp: selectedDp });
+            const res = await api.post('mobile/chat/profile', { username: tempUsername, dp: selectedDp });
             if (res.data.success) {
                 setChatProfile({ username: res.data.profile.appChatUsername, dp: res.data.profile.appChatDp });
                 setShowProfileSetup(false);
@@ -78,7 +78,7 @@ const CommunityChatScreen = ({ route, navigation }) => {
         if (!businessId) return;
         try {
             // Load History
-            const res = await api.get(`/mobile/chat/history/${businessId}`);
+            const res = await api.get(`mobile/chat/history/${businessId}`);
             if (res.data.success) {
                 setMessages(res.data.messages);
                 setIsLocked(res.data.isLocked);
@@ -87,7 +87,7 @@ const CommunityChatScreen = ({ route, navigation }) => {
             // Connect Socket
             // Determine backend URL from api defaults
             const backendUrl = api.defaults.baseURL.replace('/api', '');
-            
+
             socketRef.current = io(backendUrl, {
                 auth: { token: userToken }
             });
@@ -140,7 +140,7 @@ const CommunityChatScreen = ({ route, navigation }) => {
 
     const renderMessage = ({ item }) => {
         const isMine = item.senderId === userInfo.id;
-        
+
         if (item.isDeleted) {
             return (
                 <View style={[styles.messageWrapper, isMine ? styles.messageMine : styles.messageOther]}>
@@ -154,17 +154,17 @@ const CommunityChatScreen = ({ route, navigation }) => {
         }
 
         const dpUrl = item.sender?.appChatDp ? `${api.defaults.baseURL.replace('/api', '')}/storage/images/chat_dps/${item.sender.appChatDp}` : null;
-        
+
         return (
-            <TouchableOpacity 
+            <TouchableOpacity
                 onLongPress={() => deleteMessage(item.id)}
                 delayLongPress={500}
                 style={[styles.messageWrapper, isMine ? styles.messageMine : styles.messageOther]}
             >
                 {!isMine && (
-                    <Image 
-                        source={dpUrl ? { uri: dpUrl } : require('../../assets/images/user-avatar.png')} 
-                        style={styles.avatar} 
+                    <Image
+                        source={dpUrl ? { uri: dpUrl } : require('../../assets/images/user-avatar.png')}
+                        style={styles.avatar}
                         defaultSource={require('../../assets/images/user-avatar.png')}
                     />
                 )}
@@ -190,31 +190,31 @@ const CommunityChatScreen = ({ route, navigation }) => {
                     <Text style={styles.profileTitle}>Setup Your Chat Profile</Text>
                     <Text style={styles.profileSubtitle}>Choose a username and an avatar</Text>
 
-                    <Image 
-                        source={{ uri: `${api.defaults.baseURL.replace('/api', '')}/storage/images/chat_dps/${selectedDp}` }} 
-                        style={styles.largeAvatar} 
+                    <Image
+                        source={{ uri: `${api.defaults.baseURL.replace('/api', '')}/storage/images/chat_dps/${selectedDp}` }}
+                        style={styles.largeAvatar}
                     />
-                    
+
                     <FlatList
                         horizontal
                         data={DP_IMAGES}
                         keyExtractor={(item) => item}
                         showsHorizontalScrollIndicator={false}
                         style={{ maxHeight: 70, marginBottom: 20 }}
-                        renderItem={({item}) => (
+                        renderItem={({ item }) => (
                             <TouchableOpacity onPress={() => setSelectedDp(item)}>
-                                <Image 
-                                    source={{ uri: `${api.defaults.baseURL.replace('/api', '')}/storage/images/chat_dps/${item}` }} 
-                                    style={[styles.smallAvatar, selectedDp === item && styles.selectedAvatar]} 
+                                <Image
+                                    source={{ uri: `${api.defaults.baseURL.replace('/api', '')}/storage/images/chat_dps/${item}` }}
+                                    style={[styles.smallAvatar, selectedDp === item && styles.selectedAvatar]}
                                 />
                             </TouchableOpacity>
                         )}
                     />
 
-                    <TextInput 
-                        style={styles.inputField} 
-                        placeholder="Choose a cool username" 
-                        value={tempUsername} 
+                    <TextInput
+                        style={styles.inputField}
+                        placeholder="Choose a cool username"
+                        value={tempUsername}
                         onChangeText={setTempUsername}
                         maxLength={20}
                     />
@@ -257,9 +257,9 @@ const CommunityChatScreen = ({ route, navigation }) => {
                 </View>
             ) : (
                 <View style={styles.inputArea}>
-                    <TextInput 
-                        style={styles.messageInput} 
-                        placeholder="Type your message..." 
+                    <TextInput
+                        style={styles.messageInput}
+                        placeholder="Type your message..."
                         value={newMessage}
                         onChangeText={setNewMessage}
                         multiline
