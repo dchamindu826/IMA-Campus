@@ -7,9 +7,13 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import messaging from '@react-native-firebase/messaging';
 import notifee, { AndroidImportance, AndroidStyle } from '@notifee/react-native'; 
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import SpInAppUpdates, { IAUUpdateKind } from 'sp-react-native-in-app-updates';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CourseProvider } from './src/context/CourseContext'; 
 import { AuthProvider, AuthContext } from './src/context/AuthContext'; 
+import { CallProvider } from './src/context/CallContext';
+import GlobalCallPopup from './src/components/GlobalCallPopup';
 import COLORS from './src/constants/colors';
 import api from './src/services/api'; 
 
@@ -28,12 +32,15 @@ import LiveScreen from './src/screens/LiveScreen';
 import PaymentMethodScreen from './src/screens/PaymentMethodScreen'; 
 import StaffDashboardScreen from './src/screens/StaffDashboardScreen';
 import CommunityChatScreen from './src/screens/CommunityChatScreen'; 
+import SupportChatScreen from './src/screens/SupportChatScreen';
+import DeliveryScreen from './src/screens/DeliveryScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
 
 function BottomTabNavigator() {
   const [hasMonthlyPayment, setHasMonthlyPayment] = useState(false);
+  const insets = useSafeAreaInsets();
 
   useEffect(() => {
     const sub = DeviceEventEmitter.addListener('update_monthly_payment_badge', (hasPayment) => {
@@ -47,9 +54,10 @@ function BottomTabNavigator() {
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarActiveTintColor: COLORS.primary,
-        tabBarInactiveTintColor: '#999',
-        tabBarStyle: { height: 70, paddingBottom: 12, paddingTop: 8, backgroundColor: 'white', elevation: 20 },
-        tabBarLabelStyle: { fontSize: 12, fontWeight: 'bold' },
+        tabBarInactiveTintColor: '#6B7280', // Darker gray for better visibility
+        tabBarShowLabel: true,
+        tabBarStyle: { height: (Platform.OS === 'ios' ? 85 : 65) + Math.max(insets.bottom, 10), paddingTop: 8, paddingBottom: Platform.OS === 'ios' ? 25 : Math.max(insets.bottom, 10), backgroundColor: 'white', elevation: 20 },
+        tabBarLabelStyle: { fontSize: 11, fontWeight: '800', marginBottom: 4 },
         tabBarIcon: ({ color, focused }) => {
           let iconName;
           let iconSize = focused ? 30 : 26;
@@ -81,7 +89,7 @@ function BottomTabNavigator() {
 }
 
 const AppNavigation = () => {
-  const { userToken, isLoading, setUserToken, setUserInfo, logout } = useContext(AuthContext);
+  const { userToken, userInfo, isLoading, setUserToken, setUserInfo, logout } = useContext(AuthContext);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
 
   // 🔥 AUTO LOGOUT & POLLING LOGIC 🔥
@@ -156,12 +164,14 @@ const AppNavigation = () => {
                 />
             )}
             <Stack.Screen name="CommunityChat" component={CommunityChatScreen} options={{ headerShown: false }} />
+            <Stack.Screen name="SupportChat" component={SupportChatScreen} options={{ headerShown: false }} />
             <Stack.Screen name="Downloads" component={DownloadsScreen} options={{ headerShown: false }} />
             <Stack.Screen name="Profile" component={ProfileScreen} options={{ headerShown: true, title: 'Profile' }} />
             <Stack.Screen name="CourseDetails" component={CourseDetailsScreen} options={{ headerShown: true, title: 'Enroll Course' }} />
             <Stack.Screen name="PaymentScreen" component={PaymentScreen} />
             <Stack.Screen name="CourseContent" component={CourseContentScreen} />
             <Stack.Screen name="PaymentMethod" component={PaymentMethodScreen} options={{ title: 'Select Payment Method' }} />
+            <Stack.Screen name="Delivery" component={DeliveryScreen} options={{ headerShown: false }} />
           </>
         )}
       </Stack.Navigator>
@@ -199,6 +209,24 @@ const AppNavigation = () => {
 
 export default function App() {
   useEffect(() => {
+    // 🔥 IN-APP UPDATES CHECK 🔥
+    const inAppUpdates = new SpInAppUpdates(
+      false // isDebug
+    );
+
+    inAppUpdates.checkNeedsUpdate().then((result) => {
+      if (result.shouldUpdate) {
+        let updateOptions = {};
+        if (Platform.OS === 'android') {
+          // Force immediate update on Android
+          updateOptions = {
+            updateType: IAUUpdateKind.IMMEDIATE,
+          };
+        }
+        inAppUpdates.startUpdate(updateOptions);
+      }
+    }).catch(err => console.log("In-App Update Check Failed:", err));
+
     const setupNotifications = async () => {
       try {
         if (Platform.OS === 'android' && Platform.Version >= 33) {
@@ -282,13 +310,18 @@ export default function App() {
   }, []);
 
   return (
-    <AuthProvider>
-      <CourseProvider>
-        <NavigationContainer>
-          <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
-          <AppNavigation />
-        </NavigationContainer>
-      </CourseProvider>
-    </AuthProvider>
+    <SafeAreaProvider>
+      <AuthProvider>
+        <CallProvider>
+          <CourseProvider>
+            <NavigationContainer>
+              <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
+              <AppNavigation />
+              <GlobalCallPopup />
+            </NavigationContainer>
+          </CourseProvider>
+        </CallProvider>
+      </AuthProvider>
+    </SafeAreaProvider>
   );
 }

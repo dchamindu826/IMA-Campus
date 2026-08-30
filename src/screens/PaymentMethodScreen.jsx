@@ -6,7 +6,7 @@ import { launchImageLibrary, launchCamera } from 'react-native-image-picker';
 import COLORS from '../constants/colors';
 import api from '../services/api';
 import CustomAlert from '../components/CustomAlert';
-import PayHere from '@payhere/payhere-mobilesdk-reactnative';
+import { WebView } from 'react-native-webview';
 
 const { height } = Dimensions.get('window');
 
@@ -28,6 +28,8 @@ const PaymentMethodScreen = ({ route, navigation }) => {
     const [alertVisible, setAlertVisible] = useState(false);
     const [alertConfig, setAlertConfig] = useState({ title: '', msg: '', type: 'success' });
     const [showSlipInstructions, setShowSlipInstructions] = useState(false);
+    const [paycorpUrl, setPaycorpUrl] = useState(null);
+    const [showPaycorpModal, setShowPaycorpModal] = useState(false);
 
     useLayoutEffect(() => {
       navigation.setOptions({ headerShown: false });
@@ -40,30 +42,62 @@ const PaymentMethodScreen = ({ route, navigation }) => {
           const orderId = `ORD-${Date.now()}`;
           const formattedAmount = parseFloat(amount).toFixed(2);
           
-          const hashRes = await api.post('/student/payhere-hash', { amount: formattedAmount, orderId: orderId, currency: "LKR" });
-          const finalHash = hashRes.data.hash;
+          const initRes = await api.post('/student/paycorp-init', { 
+              amount: formattedAmount, 
+              orderId: orderId,
+              businessId: businessId || 1
+          });
 
-          const paymentObject = {
-              sandbox: false, 
-              merchant_id: MERCHANT_ID,       
-              notify_url: "https://api.imacampus.lk/api/student/payhere-notify", 
-              order_id: orderId,              
-              items: isUpgrade ? "IMA Course Upgrade" : "IMA Course Enrollment",
-              amount: formattedAmount,        
-              currency: "LKR",             
-              hash: finalHash,                
-              first_name: "Student", last_name: "Member", email: "student@ima.lk", phone: "0777123456", address: "IMA Academy", city: "Colombo", country: "Sri Lanka",
-          };
-
-          PayHere.startPayment(
-              paymentObject,
-              async (paymentId) => { await saveEnrollmentToBackend('payhere', orderId); },
-              (errorData) => { setLoading(false); setAlertConfig({ title: "Failed", msg: "Payment Failed.", type: "error" }); setAlertVisible(true); },
-              () => { setLoading(false); }
-          );
+          if (initRes.data && initRes.data.success && initRes.data.paymentUrl) {
+              setPaycorpUrl(initRes.data.paymentUrl);
+              setShowPaycorpModal(true);
+              setLoading(false);
+          } else {
+              setLoading(false);
+              setAlertConfig({ title: "Error", msg: "Failed to initialize Sampath IPG.", type: "error" });
+              setAlertVisible(true);
+          }
       } catch (e) {
-          setLoading(false); setAlertConfig({ title: "Error", msg: "Connection failed.", type: "error" }); setAlertVisible(true);
+          setLoading(false); 
+          setAlertConfig({ title: "Error", msg: "Connection failed.", type: "error" }); 
+          setAlertVisible(true);
       }
+    };
+
+    const handleWebViewNavigationStateChange = async (navState) => {
+        const { url } = navState;
+        if (url && url.includes('/student/paycorp-return')) {
+            setShowPaycorpModal(false);
+            setPaycorpUrl(null);
+            
+            const reqidMatch = url.match(/[?&]reqid=([^&]+)/);
+            if (reqidMatch && reqidMatch[1]) {
+                const reqid = reqidMatch[1];
+                setLoading(true);
+                try {
+                    const verifyRes = await api.post('/student/paycorp-complete', { reqid, businessId });
+                    if (verifyRes.data && verifyRes.data.success) {
+                        await saveEnrollmentToBackend('paycorp', reqid);
+                    } else {
+                        setLoading(false);
+                        setAlertConfig({ title: "Failed", msg: "Payment verification failed.", type: "error" }); 
+                        setAlertVisible(true);
+                    }
+                } catch (verifyError) {
+                    setLoading(false);
+                    setAlertConfig({ title: "Error", msg: "Error verifying payment.", type: "error" }); 
+                    setAlertVisible(true);
+                }
+            } else {
+                setAlertConfig({ title: "Error", msg: "Payment returned without a valid ID.", type: "error" }); 
+                setAlertVisible(true);
+            }
+        } else if (url && url.includes('/student/paycorp-cancel')) {
+            setShowPaycorpModal(false);
+            setPaycorpUrl(null);
+            setAlertConfig({ title: "Cancelled", msg: "Payment was cancelled.", type: "error" }); 
+            setAlertVisible(true);
+        }
     };
 
     const confirmSlipInstructions = () => {
@@ -191,7 +225,7 @@ const PaymentMethodScreen = ({ route, navigation }) => {
           <View style={styles.methodContainer}>
               <View style={styles.infoBox}>
                   <Icon name="shield-check" size={24} color="#10B981" />
-                  <Text style={styles.infoText}>Pay securely with your Credit or Debit card via PayHere Gateway.</Text>
+                  <Text style={styles.infoText}>Pay securely with your Credit or Debit card via Sampath IPG.</Text>
               </View>
               <TouchableOpacity style={styles.submitBtn} onPress={handleFinalSubmit} disabled={loading}>
                   {loading ? <ActivityIndicator color="white" /> : (
@@ -242,6 +276,26 @@ const PaymentMethodScreen = ({ route, navigation }) => {
               </View>
           )}
         </ScrollView>
+
+      <Modal visible={showPaycorpModal} animationType="slide" onRequestClose={() => { setShowPaycorpModal(false); setPaycorpUrl(null); }}>
+          <SafeAreaView style={{ flex: 1, backgroundColor: 'white' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', padding: 15, borderBottomWidth: 1, borderBottomColor: '#E5E7EB' }}>
+                  <TouchableOpacity onPress={() => { setShowPaycorpModal(false); setPaycorpUrl(null); }} style={{ padding: 5 }}>
+                      <Icon name="close" size={24} color="#1A1A1A" />
+                  </TouchableOpacity>
+                  <Text style={{ marginLeft: 15, fontSize: 18, fontWeight: '700', color: '#1A1A1A' }}>Secure Payment</Text>
+              </View>
+              {paycorpUrl ? (
+                  <WebView 
+                      source={{ uri: paycorpUrl }} 
+                      style={{ flex: 1 }} 
+                      onNavigationStateChange={handleWebViewNavigationStateChange}
+                      startInLoadingState={true}
+                      renderLoading={() => <ActivityIndicator size="large" color={COLORS.primary} style={{ position: 'absolute', top: '50%', left: '50%', transform: [{translateX: -20}, {translateY: -20}] }} />}
+                  />
+              ) : null}
+          </SafeAreaView>
+      </Modal>
 
       <Modal visible={showSlipInstructions} transparent={true} animationType="fade">
           <View style={styles.modalOverlay}>

@@ -8,7 +8,7 @@ import { launchImageLibrary } from 'react-native-image-picker';
 import { Picker } from '@react-native-picker/picker'; 
 import COLORS from '../constants/colors';
 import { AuthContext } from '../context/AuthContext';
-import api from '../services/api';
+import api, { IMAGE_URL } from '../services/api';
 import CustomAlert from '../components/CustomAlert';
 
 const PasswordRequirement = ({ met, text }) => (
@@ -150,7 +150,7 @@ const ProfileScreen = ({ navigation }) => {
 
   // 🔥 මෙතන variable එක හරියට හැදුවා (Home එකේ වගේම)
   const finalProfileImageUri = userInfo?.image && userInfo.image !== 'default.png' && userInfo.image !== 'null' 
-      ? `https://imacampus.online/api/storage/images/${userInfo.image}` 
+      ? `${IMAGE_URL}images/${userInfo.image}` 
       : null;
 
   return (
