@@ -100,15 +100,12 @@ const SectionedContentList = ({ tabKey, type, data, contentGroups, onPlay, onSho
         checkDownloadedItems();
     }, []);
 
-    useEffect(() => {
-        if (contentGroups) {
-            const initial = {};
-            contentGroups.forEach(g => initial[g.id] = true);
-            setOpenFolders(initial);
-        }
-    }, [contentGroups]);
+    const toggleFolder = (folderId) => setOpenFolders(prev => ({
+        ...prev,
+        [folderId]: prev[folderId] === false ? true : false
+    }));
 
-    const toggleFolder = (folderId) => setOpenFolders(prev => ({ ...prev, [folderId]: !prev[folderId] }));
+    const isFolderOpen = (folderId) => openFolders[folderId] !== false;
 
     if (!data || data.length === 0) {
         return (
@@ -122,6 +119,15 @@ const SectionedContentList = ({ tabKey, type, data, contentGroups, onPlay, onSho
 
     const isDocumentType = ['document', 'paper', 'sPaper'].includes(type);
 
+    const normalizeFolderTitle = (title) => {
+        if (!title) return '';
+        return title
+            .toLowerCase()
+            .replace(/[\s_-]+/g, ' ')
+            .replace(/\b(month|batch|මාසය|මාස|පාඩම|පාඩම්)\b/gi, '')
+            .trim();
+    };
+
     const getTypeInt = (typeStr) => {
         switch (typeStr) {
             case 'live': return 1;
@@ -134,19 +140,126 @@ const SectionedContentList = ({ tabKey, type, data, contentGroups, onPlay, onSho
     };
     const targetTypeInt = getTypeInt(type);
 
-    const folders = (contentGroups || [])
+    const allTypeFolders = (contentGroups || [])
         .filter(f => parseInt(f.type) === targetTypeInt)
         .sort((a, b) => parseInt(a.itemOrder || 1) - parseInt(b.itemOrder || 1));
 
-    const groupedItems = folders.map(folder => ({
+    // Root folders: folders that do not have parentId or whose parent is not in allTypeFolders
+    const rawRootFolders = allTypeFolders.filter(
+        f => !f.parentId || !allTypeFolders.some(p => String(p.id) === String(f.parentId))
+    );
+
+    // Merge root folders with same normalized title or raw title to prevent duplicate boxes
+    const mergedRootFoldersMap = new Map();
+    rawRootFolders.forEach(f => {
+        const normTitle = normalizeFolderTitle(f.title || f.name);
+        const titleKey = normTitle || (f.title || f.name || '').trim().toLowerCase() || String(f.id);
+
+        if (!mergedRootFoldersMap.has(titleKey)) {
+            mergedRootFoldersMap.set(titleKey, {
+                id: f.id,
+                title: f.title || f.name,
+                itemOrder: f.itemOrder || 1,
+                ids: [String(f.id)],
+                subFolderIds: [],
+                titles: [f.title || f.name].filter(Boolean)
+            });
+        } else {
+            const existing = mergedRootFoldersMap.get(titleKey);
+            existing.ids.push(String(f.id));
+            if ((f.title || f.name) && !existing.titles.includes(f.title || f.name)) {
+                existing.titles.push(f.title || f.name);
+            }
+        }
+    });
+
+    // For each root folder, find all descendant subfolders so their items are directly displayed in the main folder
+    const rootFolders = Array.from(mergedRootFoldersMap.values());
+    rootFolders.forEach(rf => {
+        const subFolders = allTypeFolders.filter(sf => sf.parentId && rf.ids.includes(String(sf.parentId)));
+        subFolders.forEach(sf => {
+            const sfIdStr = String(sf.id);
+            if (!rf.subFolderIds.includes(sfIdStr)) {
+                rf.subFolderIds.push(sfIdStr);
+            }
+            if (sf.title && !rf.titles.includes(sf.title)) {
+                rf.titles.push(sf.title);
+            }
+        });
+        rf.allFolderIds = [...rf.ids, ...rf.subFolderIds];
+    });
+
+    const monthNames = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
+    const sinhalaMonths = ["ජනවාරි", "පෙබරවාරි", "මාර්තු", "අප්‍රේල්", "මැයි", "ජූනි", "ජූලි", "අගෝස්තු", "සැප්තැම්බර්", "ඔක්තෝබර්", "නොවැම්බර්", "දෙසැම්බර්"];
+
+    const isItemMatchFolder = (item, rf) => {
+        const fId = String(item.contentGroupId ?? item.content_group_id ?? item.folder_id ?? '');
+        if (fId && rf.allFolderIds.includes(fId)) {
+            return true;
+        }
+
+        const itemParentId = String(item.group?.parentId ?? '');
+        if (itemParentId && rf.ids.includes(itemParentId)) {
+            return true;
+        }
+
+        const itemGroupTitle = item.groupTitle || item.group?.title;
+        if (itemGroupTitle && rf.titles && rf.titles.length > 0) {
+            const rawItem = itemGroupTitle.trim().toLowerCase();
+            const normItem = normalizeFolderTitle(itemGroupTitle);
+            for (const t of rf.titles) {
+                if (t) {
+                    const rawT = t.trim().toLowerCase();
+                    const normT = normalizeFolderTitle(t);
+                    if (rawItem === rawT || (normItem && normT && normItem === normT)) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        // Smart Month Fallback Matching
+        if (rf.titles && rf.titles.length > 0) {
+            let targetMonthIdx = -1;
+            if (item.date) {
+                try {
+                    const d = new Date(item.date);
+                    if (!isNaN(d.getTime())) targetMonthIdx = d.getMonth();
+                } catch (err) {}
+            }
+            if (targetMonthIdx === -1 && item.title) {
+                const titleLower = item.title.toLowerCase();
+                targetMonthIdx = monthNames.findIndex(m => titleLower.includes(m));
+                if (targetMonthIdx === -1) targetMonthIdx = sinhalaMonths.findIndex(m => titleLower.includes(m));
+            }
+            if (targetMonthIdx !== -1) {
+                const engMonth = monthNames[targetMonthIdx];
+                const sinMonth = sinhalaMonths[targetMonthIdx];
+                for (const t of rf.titles) {
+                    if (t) {
+                        const tLower = t.toLowerCase();
+                        const tNorm = normalizeFolderTitle(t);
+                        if (tLower.includes(engMonth) || tLower.includes(sinMonth) ||
+                            tNorm.includes(engMonth) || tNorm.includes(sinMonth)) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+
+        return false;
+    };
+
+    const groupedItems = rootFolders.map(folder => ({
         folder,
         items: data
-            .filter(item => String(item.contentGroupId || item.content_group_id || item.folder_id) === String(folder.id))
+            .filter(item => isItemMatchFolder(item, folder))
             .sort((a, b) => parseInt(a.itemOrder || 1) - parseInt(b.itemOrder || 1))
     }));
 
     const uncategorizedItems = data
-        .filter(item => !folders.find(f => String(f.id) === String(item.contentGroupId || item.content_group_id || item.folder_id)))
+        .filter(item => !rootFolders.some(rf => isItemMatchFolder(item, rf)))
         .sort((a, b) => parseInt(a.itemOrder || 1) - parseInt(b.itemOrder || 1));
 
     const handleDocDownload = (item) => {
@@ -277,28 +390,31 @@ const SectionedContentList = ({ tabKey, type, data, contentGroups, onPlay, onSho
 
     return (
         <ScrollView style={styles.tabContent} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
-            {groupedItems.map(({ folder, items }) => (
-                <View key={`folder-${folder.id}`} style={styles.monthSection}>
-                    <TouchableOpacity
-                        style={[styles.monthHeader, { alignSelf: 'stretch', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10 }]}
-                        onPress={() => toggleFolder(folder.id)} activeOpacity={0.7}
-                    >
-                        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, paddingRight: 10 }}>
-                            <Icon name="folder-open" size={18} color="white" style={{ marginRight: 10 }} />
-                            <Text style={[styles.monthHeaderText, { fontSize: 14 }]} numberOfLines={1}>{folder.title || folder.name}</Text>
-                        </View>
-                        <Icon name={openFolders[folder.id] ? "chevron-up" : "chevron-down"} size={22} color="white" />
-                    </TouchableOpacity>
+            {groupedItems.map(({ folder, items }) => {
+                const isOpen = isFolderOpen(folder.id);
+                return (
+                    <View key={`folder-${folder.id}`} style={styles.monthSection}>
+                        <TouchableOpacity
+                            style={[styles.monthHeader, { alignSelf: 'stretch', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10 }]}
+                            onPress={() => toggleFolder(folder.id)} activeOpacity={0.7}
+                        >
+                            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, paddingRight: 10 }}>
+                                <Icon name="folder-open" size={18} color="white" style={{ marginRight: 10 }} />
+                                <Text style={[styles.monthHeaderText, { fontSize: 14 }]} numberOfLines={1}>{folder.title || folder.name}</Text>
+                            </View>
+                            <Icon name={isOpen ? "chevron-up" : "chevron-down"} size={22} color="white" />
+                        </TouchableOpacity>
 
-                    {openFolders[folder.id] && (
-                        <View style={{ paddingLeft: 10, marginTop: 5 }}>
-                            {items.length === 0 ? (
-                                <Text style={{ color: '#9CA3AF', fontSize: 12, fontStyle: 'italic', marginBottom: 15, paddingLeft: 10 }}>This folder is empty.</Text>
-                            ) : (items.map(item => renderItemCard(item)))}
-                        </View>
-                    )}
-                </View>
-            ))}
+                        {isOpen && (
+                            <View style={{ paddingLeft: 10, marginTop: 5 }}>
+                                {items.length === 0 ? (
+                                    <Text style={{ color: '#9CA3AF', fontSize: 12, fontStyle: 'italic', marginBottom: 15, paddingLeft: 10 }}>This folder is empty.</Text>
+                                ) : (items.map(item => renderItemCard(item)))}
+                            </View>
+                        )}
+                    </View>
+                );
+            })}
 
             {uncategorizedItems.length > 0 && (
                 <View style={styles.monthSection}>
@@ -403,7 +519,7 @@ const CourseContentScreen = ({ route, navigation }) => {
             <View style={styles.container}>
                 <StatusBar barStyle="light-content" backgroundColor="transparent" translucent={true} />
                 <LinearGradient colors={[COLORS.primary, '#9A0007']} start={{x: 0, y: 0}} end={{x: 1, y: 1}} style={[styles.redHeader, { paddingTop: insets.top + 15 }]}>
-        <Icon name="school" size={150} color="rgba(255,255,255,0.06)" style={{position: 'absolute', right: -30, top: -20, transform: [{rotate: '-15deg'}]}} />
+                    <Icon name="school" size={150} color="rgba(255,255,255,0.06)" style={{position: 'absolute', right: -30, top: -20, transform: [{rotate: '-15deg'}]}} />
                     <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}><Icon name="arrow-left" size={24} color="white" /></TouchableOpacity>
                     <Text style={styles.headerTitle} numberOfLines={1}>{courseTitle}</Text>
                 </LinearGradient>
@@ -425,7 +541,7 @@ const CourseContentScreen = ({ route, navigation }) => {
             <CustomAlert isVisible={alertVisible} title={alertConfig.title} message={alertConfig.msg} type={alertConfig.type} onClose={() => setAlertVisible(false)} />
 
             <LinearGradient colors={[COLORS.primary, '#9A0007']} start={{x: 0, y: 0}} end={{x: 1, y: 1}} style={[styles.redHeader, { paddingTop: insets.top + 15 }]}>
-        <Icon name="school" size={150} color="rgba(255,255,255,0.06)" style={{position: 'absolute', right: -30, top: -20, transform: [{rotate: '-15deg'}]}} />
+                <Icon name="school" size={150} color="rgba(255,255,255,0.06)" style={{position: 'absolute', right: -30, top: -20, transform: [{rotate: '-15deg'}]}} />
                 <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}><Icon name="arrow-left" size={24} color="white" /></TouchableOpacity>
                 <Text style={styles.headerTitle} numberOfLines={1}>{courseTitle}</Text>
             </LinearGradient>

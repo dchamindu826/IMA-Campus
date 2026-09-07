@@ -153,12 +153,29 @@ const CourseDetailsScreen = ({ route, navigation }) => {
             for (let rule of rules) { if (eligibleCount >= rule.courseCount) { activeRule = rule; break; } }
 
             setIsDiscountApplied(!!activeRule);
-            if (activeRule) setActiveDiscountPrice(activeRule.pricePerCourse); else setActiveDiscountPrice(null);
+            if (activeRule && activeRule.pricePerCourse != null && activeRule.pricePerCourse !== '') {
+                setActiveDiscountPrice(activeRule.pricePerCourse);
+            } else {
+                setActiveDiscountPrice(null);
+            }
 
-            filteredSubjects.filter(c => selectedSubjects.includes(c.id)).forEach(course => {
-                if (activeRule && !course.isDiscountExcluded) total += parseFloat(activeRule.pricePerCourse || 0);
-                else total += parseFloat(course.price || 0);
-            });
+            if (activeRule && activeRule.packagePrice != null && activeRule.packagePrice !== '') {
+                total = parseFloat(activeRule.packagePrice || 0);
+                filteredSubjects.filter(c => selectedSubjects.includes(c.id) && c.isDiscountExcluded).forEach(course => {
+                    total += parseFloat(course.price || 0);
+                });
+            } else {
+                filteredSubjects.filter(c => selectedSubjects.includes(c.id)).forEach(course => {
+                    if (activeRule && activeRule.pricePerCourse != null && activeRule.pricePerCourse !== '' && !course.isDiscountExcluded) {
+                        total += parseFloat(activeRule.pricePerCourse || 0);
+                    } else {
+                        total += parseFloat(course.price || 0);
+                    }
+                });
+                if (activeRule && activeRule.fixedDiscount && parseFloat(activeRule.fixedDiscount) > 0) {
+                    total = Math.max(0, total - parseFloat(activeRule.fixedDiscount));
+                }
+            }
             setTotalAmount(total);
         } catch (err) { }
     }, [selectedSubjects, filteredSubjects, selectedMonthGroup]);
