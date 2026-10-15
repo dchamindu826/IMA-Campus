@@ -3,6 +3,7 @@ import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
   ActivityIndicator, RefreshControl, Platform, StatusBar
 } from 'react-native';
+import LinearGradient from 'react-native-linear-gradient';
 import { useFocusEffect } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import notifee, { AndroidImportance } from '@notifee/react-native';
@@ -195,7 +196,7 @@ const PaymentsScreen = ({ navigation }) => {
       <StatusBar backgroundColor={COLORS.primary} barStyle="light-content" translucent={true} />
 
       {/* 🔥 අලුත් ලස්සන Header එක */}
-      <LinearGradient colors={['#9A0007', '#E53935']} start={{x: 0, y: 0}} end={{x: 1, y: 1}} style={[styles.header, { borderBottomLeftRadius: 35, borderBottomRightRadius: 35, elevation: 8 }]}>
+      <LinearGradient colors={['#9A0007', '#E53935']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[styles.header, { borderBottomLeftRadius: 35, borderBottomRightRadius: 35, elevation: 8 }]}>
         <View style={styles.topBar}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
             <Icon name="arrow-left" size={24} color="white" />

@@ -166,9 +166,10 @@ class DownloadManager {
                     headers: { 'User-Agent': ua, 'Referer': `https://zoom.us${redirectUrl}` }
                 });
                 const json4 = await res4.json();
-                if (!json4.result || !json4.result.viewMp4Url) throw new Error("Failed to extract final MP4 URL.");
+                const streamUrl = json4.result.downloadUrl || json4.result.viewMp4Url;
+                if (!json4.result || !streamUrl) throw new Error("Failed to extract final MP4 URL.");
 
-                finalUrl = json4.result.viewMp4Url;
+                finalUrl = streamUrl;
                 finalHeaders = {
                     'User-Agent': ua,
                     'Referer': `https://zoom.us${redirectUrl}`
@@ -182,11 +183,12 @@ class DownloadManager {
                 fileCache: true,
                 overwrite: true,
                 followRedirect: true,
+                trusty: true, // Fixes SSL/TLS handshake & hostname drop on Android
+                timeout: 7200000, // 2 hours timeout for large (1GB+) video files
             };
 
             if (Platform.OS === 'ios') {
                 downloadConfig.IOSBackgroundTask = true;
-                downloadConfig.timeout = 3600000;
             }
 
             this.emitProgress(item.id, 0, itemTitle);

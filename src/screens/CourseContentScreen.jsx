@@ -24,14 +24,13 @@ const KNOWN_TABS = [
     { key: 'recordings', title: 'Recordings', type: 'recording', icon: 'video-outline' },
     { key: 'liveClasses', title: 'Live Classes', type: 'live', icon: 'broadcast' },
     { key: 'documents', title: 'Documents', type: 'document', icon: 'file-document-outline' },
-    { key: 'papers', title: 'MCQ Papers', type: 'paper', icon: 'format-list-checks' },
-    { key: 'sPapers', title: 'Structured Papers', type: 'sPaper', icon: 'text-box-outline' }
+    { key: 'testRanking', title: 'Ranking Tests', type: 'testRanking', icon: 'trophy-outline' }
 ];
 
 // 🔥 SECURE INTERNAL PATH DEFINITION 🔥
 const secureStoragePath = Platform.OS === 'ios' ? RNFS.LibraryDirectoryPath : RNFS.DocumentDirectoryPath;
 
-const SectionedContentList = ({ tabKey, type, data, contentGroups, onPlay, onShowAlert, courseTitle }) => {
+const SectionedContentList = ({ tabKey, type, data, contentGroups, onPlay, onShowAlert, courseTitle, onTakeExam }) => {
     const [openFolders, setOpenFolders] = useState({});
     const [downloadingItems, setDownloadingItems] = useState({});
 
@@ -100,27 +99,50 @@ const SectionedContentList = ({ tabKey, type, data, contentGroups, onPlay, onSho
         checkDownloadedItems();
     }, []);
 
-    useEffect(() => {
-        if (contentGroups) {
-            const initial = {};
-            contentGroups.forEach(g => initial[g.id] = true);
-            setOpenFolders(initial);
-        }
-    }, [contentGroups]);
+    const toggleFolder = (folderId) => setOpenFolders(prev => ({
+        ...prev,
+        [folderId]: prev[folderId] === false ? true : false
+    }));
 
-    const toggleFolder = (folderId) => setOpenFolders(prev => ({ ...prev, [folderId]: !prev[folderId] }));
+    const isFolderOpen = (folderId) => openFolders[folderId] !== false;
 
     if (!data || data.length === 0) {
         return (
             <View style={styles.emptyContainer}>
-                <View style={styles.emptyIconBox}><Icon name="folder-open-outline" size={50} color="#D1D5DB" /></View>
-                <Text style={styles.emptyTitle}>No Content Yet</Text>
-                <Text style={styles.emptyText}>Materials for this section will appear here once uploaded by the lecturer.</Text>
+                <View style={styles.emptyIconBox}>
+                    <Icon name={type === 'testRanking' ? "trophy-outline" : "folder-open-outline"} size={50} color="#D1D5DB" />
+                </View>
+                <Text style={styles.emptyTitle}>{type === 'testRanking' ? "No Tests Yet" : "No Content Yet"}</Text>
+                <Text style={styles.emptyText}>
+                    {type === 'testRanking'
+                        ? "Ranking tests for this course will appear here once scheduled by the lecturer."
+                        : "Materials for this section will appear here once uploaded by the lecturer."}
+                </Text>
             </View>
         );
     }
 
-    const isDocumentType = ['document', 'paper', 'sPaper'].includes(type);
+    const isTestType = type === 'testRanking' || type === 'paper' || type === 'sPaper';
+    const isDocumentType = type === 'document';
+
+    const formatDuration = (mins) => {
+        if (!mins) return '60 Mins';
+        const total = parseInt(mins, 10);
+        const h = Math.floor(total / 60);
+        const m = total % 60;
+        if (h > 0 && m > 0) return `${h}h ${m}m`;
+        if (h > 0) return `${h} Hour${h > 1 ? 's' : ''}`;
+        return `${m} Mins`;
+    };
+
+    const normalizeFolderTitle = (title) => {
+        if (!title) return '';
+        return title
+            .toLowerCase()
+            .replace(/[\s_-]+/g, ' ')
+            .replace(/\b(month|batch|මාසය|මාස|පාඩම|පාඩම්)\b/gi, '')
+            .trim();
+    };
 
     const getTypeInt = (typeStr) => {
         switch (typeStr) {
@@ -129,24 +151,156 @@ const SectionedContentList = ({ tabKey, type, data, contentGroups, onPlay, onSho
             case 'document': return 3;
             case 'sPaper': return 4;
             case 'paper': return 5;
+            case 'testRanking': return 4;
             default: return 1;
         }
     };
     const targetTypeInt = getTypeInt(type);
 
-    const folders = (contentGroups || [])
-        .filter(f => parseInt(f.type) === targetTypeInt)
+    const allTypeFolders = (contentGroups || [])
+        .filter(f => {
+            if (type === 'testRanking') {
+                const fType = parseInt(f.type);
+                return fType === 4 || fType === 5;
+            }
+            return parseInt(f.type) === targetTypeInt;
+        })
         .sort((a, b) => parseInt(a.itemOrder || 1) - parseInt(b.itemOrder || 1));
 
-    const groupedItems = folders.map(folder => ({
+    // Root folders: folders that do not have parentId or whose parent is not in allTypeFolders
+    const rawRootFolders = allTypeFolders.filter(
+        f => !f.parentId || !allTypeFolders.some(p => String(p.id) === String(f.parentId))
+    );
+
+    // Merge root folders with same normalized title or raw title to prevent duplicate boxes
+    const mergedRootFoldersMap = new Map();
+    rawRootFolders.forEach(f => {
+        const normTitle = normalizeFolderTitle(f.title || f.name);
+        const titleKey = normTitle || (f.title || f.name || '').trim().toLowerCase() || String(f.id);
+
+        if (!mergedRootFoldersMap.has(titleKey)) {
+            mergedRootFoldersMap.set(titleKey, {
+                id: f.id,
+                title: f.title || f.name,
+                itemOrder: f.itemOrder || 1,
+                ids: [String(f.id)],
+                subFolderIds: [],
+                titles: [f.title || f.name].filter(Boolean)
+            });
+        } else {
+            const existing = mergedRootFoldersMap.get(titleKey);
+            existing.ids.push(String(f.id));
+            if ((f.title || f.name) && !existing.titles.includes(f.title || f.name)) {
+                existing.titles.push(f.title || f.name);
+            }
+        }
+    });
+
+    // For each root folder, find all descendant subfolders so their items are directly displayed in the main folder
+    const rootFolders = Array.from(mergedRootFoldersMap.values());
+    rootFolders.forEach(rf => {
+        const subFolders = allTypeFolders.filter(sf => sf.parentId && rf.ids.includes(String(sf.parentId)));
+        subFolders.forEach(sf => {
+            const sfIdStr = String(sf.id);
+            if (!rf.subFolderIds.includes(sfIdStr)) {
+                rf.subFolderIds.push(sfIdStr);
+            }
+            if (sf.title && !rf.titles.includes(sf.title)) {
+                rf.titles.push(sf.title);
+            }
+        });
+        rf.allFolderIds = [...rf.ids, ...rf.subFolderIds];
+    });
+
+    const monthNames = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
+    const sinhalaMonths = ["ජනවාරි", "පෙබරවාරි", "මාර්තු", "අප්‍රේල්", "මැයි", "ජූනි", "ජූලි", "අගෝස්තු", "සැප්තැම්බර්", "ඔක්තෝබර්", "නොවැම්බර්", "දෙසැම්බර්"];
+
+    const isItemMatchFolder = (item, rf) => {
+        const fId = String(item.contentGroupId ?? item.content_group_id ?? item.folder_id ?? '');
+        if (fId) {
+            if (rf.allFolderIds.includes(fId)) {
+                return true;
+            }
+            // If item has a specific folder ID assigned and that folder exists, DO NOT fallback to month!
+            const assignedToOther = rootFolders.some(f => f.allFolderIds && f.allFolderIds.includes(fId));
+            if (assignedToOther) return false;
+        }
+
+        const itemParentId = String(item.group?.parentId ?? '');
+        if (itemParentId) {
+            if (rf.ids.includes(itemParentId)) {
+                return true;
+            }
+            const parentInOther = rootFolders.some(f => f.ids && f.ids.includes(itemParentId));
+            if (parentInOther) return false;
+        }
+
+        const itemGroupTitle = item.groupTitle || item.group?.title;
+        if (itemGroupTitle && rf.titles && rf.titles.length > 0) {
+            const rawItem = itemGroupTitle.trim().toLowerCase();
+            const normItem = normalizeFolderTitle(itemGroupTitle);
+            for (const t of rf.titles) {
+                if (t) {
+                    const rawT = t.trim().toLowerCase();
+                    const normT = normalizeFolderTitle(t);
+                    if (rawItem === rawT || (normItem && normT && normItem === normT)) {
+                        return true;
+                    }
+                }
+            }
+            // If item has a specific group title that matches another folder, DO NOT match month!
+            const titleFolderExists = rootFolders.some(f => 
+                (f.titles || []).some(t => {
+                    const tRaw = (t || '').trim().toLowerCase();
+                    const tNorm = normalizeFolderTitle(t);
+                    return tRaw === rawItem || (normItem && tNorm && normItem === tNorm);
+                })
+            );
+            if (titleFolderExists) return false;
+        }
+
+        // Smart Month Fallback Matching ONLY for items with NO assigned folder!
+        if (!fId && !itemGroupTitle && rf.titles && rf.titles.length > 0) {
+            let targetMonthIdx = -1;
+            if (item.date) {
+                try {
+                    const d = new Date(item.date);
+                    if (!isNaN(d.getTime())) targetMonthIdx = d.getMonth();
+                } catch (err) {}
+            }
+            if (targetMonthIdx === -1 && item.title) {
+                const titleLower = item.title.toLowerCase();
+                targetMonthIdx = monthNames.findIndex(m => titleLower.includes(m));
+                if (targetMonthIdx === -1) targetMonthIdx = sinhalaMonths.findIndex(m => titleLower.includes(m));
+            }
+            if (targetMonthIdx !== -1) {
+                const engMonth = monthNames[targetMonthIdx];
+                const sinMonth = sinhalaMonths[targetMonthIdx];
+                for (const t of rf.titles) {
+                    if (t) {
+                        const tLower = t.toLowerCase();
+                        const tNorm = normalizeFolderTitle(t);
+                        if (tLower.includes(engMonth) || tLower.includes(sinMonth) ||
+                            tNorm.includes(engMonth) || tNorm.includes(sinMonth)) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+
+        return false;
+    };
+
+    const groupedItems = rootFolders.map(folder => ({
         folder,
         items: data
-            .filter(item => String(item.contentGroupId || item.content_group_id || item.folder_id) === String(folder.id))
+            .filter(item => isItemMatchFolder(item, folder))
             .sort((a, b) => parseInt(a.itemOrder || 1) - parseInt(b.itemOrder || 1))
     }));
 
     const uncategorizedItems = data
-        .filter(item => !folders.find(f => String(f.id) === String(item.contentGroupId || item.content_group_id || item.folder_id)))
+        .filter(item => !rootFolders.some(rf => isItemMatchFolder(item, rf)))
         .sort((a, b) => parseInt(a.itemOrder || 1) - parseInt(b.itemOrder || 1));
 
     const handleDocDownload = (item) => {
@@ -194,13 +348,50 @@ const SectionedContentList = ({ tabKey, type, data, contentGroups, onPlay, onSho
         // 🔥 NEW: මේ වීඩියෝ එක දැනටමත් Download වෙලාද කියලා බලනවා 🔥
         const isDownloaded = downloadedItems.has(item.id);
 
-        const canDownloadVideo = !isDocumentType && item.link && item.meetingId;
+        const canDownloadVideo = !isDocumentType && !isTestType && item.link && item.meetingId;
+        const paperType = item.paper?.paperType || (item.contentType === 'sPaper' || item.contentType === '4' ? 'STRUCTURED' : 'MCQ');
+        const timerMode = item.paper?.timerMode || 'FLEXIBLE';
 
         return (
             <View key={item.id} style={styles.itemCard}>
 
                 {imgUri ? (
                     <Image source={{ uri: imgUri }} style={styles.landscapeImage} resizeMode="cover" />
+                ) : isTestType ? (
+                    <View style={[
+                        styles.landscapeImage,
+                        {
+                            backgroundColor: paperType === 'MCQ' ? '#064e3b' : paperType === 'STRUCTURED' ? '#3b0764' : '#172554',
+                            justifyContent: 'center',
+                            alignItems: 'center',
+                            padding: 10
+                        }
+                    ]}>
+                        <View style={{
+                            width: 52,
+                            height: 52,
+                            borderRadius: 26,
+                            backgroundColor: paperType === 'MCQ' ? 'rgba(52, 211, 153, 0.2)' : paperType === 'STRUCTURED' ? 'rgba(192, 132, 252, 0.2)' : 'rgba(96, 165, 250, 0.2)',
+                            justifyContent: 'center',
+                            alignItems: 'center',
+                            marginBottom: 8
+                        }}>
+                            <Icon
+                                name="trophy"
+                                size={28}
+                                color={paperType === 'MCQ' ? '#34d399' : paperType === 'STRUCTURED' ? '#c084fc' : '#60a5fa'}
+                            />
+                        </View>
+                        <Text style={{
+                            color: paperType === 'MCQ' ? '#a7f3d0' : paperType === 'STRUCTURED' ? '#e9d5ff' : '#bfdbfe',
+                            fontSize: 11,
+                            fontWeight: '900',
+                            letterSpacing: 1,
+                            textTransform: 'uppercase'
+                        }}>
+                            {paperType === 'MCQ' ? 'MCQ Test Exam' : paperType === 'STRUCTURED' ? 'Structured Essay' : 'Combined Test Exam'}
+                        </Text>
+                    </View>
                 ) : (
                     <View style={[styles.landscapeImage, { backgroundColor: '#F3F4F6', justifyContent: 'center', alignItems: 'center' }]}>
                         <Image source={{ uri: 'https://imacampus.online/logo.png' }} style={{ width: 100, height: 100, opacity: 0.15 }} resizeMode="contain" />
@@ -208,26 +399,116 @@ const SectionedContentList = ({ tabKey, type, data, contentGroups, onPlay, onSho
                 )}
 
                 <View style={styles.itemInfo}>
+                    {/* Test Badges Row */}
+                    {isTestType && (
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8, alignItems: 'center' }}>
+                            <View style={[
+                                styles.badge,
+                                paperType === 'MCQ'
+                                    ? { backgroundColor: '#ECFDF5', borderColor: '#A7F3D0' }
+                                    : paperType === 'STRUCTURED'
+                                    ? { backgroundColor: '#FAF5FF', borderColor: '#E9D5FF' }
+                                    : { backgroundColor: '#EFF6FF', borderColor: '#BFDBFE' }
+                            ]}>
+                                <Text style={[
+                                    styles.badgeText,
+                                    paperType === 'MCQ'
+                                        ? { color: '#059669' }
+                                        : paperType === 'STRUCTURED'
+                                        ? { color: '#7E22CE' }
+                                        : { color: '#1D4ED8' }
+                                ]}>
+                                    {paperType === 'MCQ' ? 'MCQ Only' : paperType === 'STRUCTURED' ? 'Structure Essay' : 'MCQ + Structured'}
+                                </Text>
+                            </View>
+
+                            <View style={[styles.badge, { backgroundColor: '#F3F4F6', borderColor: '#E5E7EB', flexDirection: 'row', alignItems: 'center' }]}>
+                                <Icon name="clock-outline" size={11} color="#059669" style={{ marginRight: 3 }} />
+                                <Text style={[styles.badgeText, { color: '#374151' }]}>
+                                    {formatDuration(item.paper?.durationMinutes || item.paperTime || 60)}
+                                </Text>
+                            </View>
+
+                            {timerMode === 'SCHEDULED' && item.paper?.scheduledStartTime && (
+                                <View style={[styles.badge, { backgroundColor: '#FEF3C7', borderColor: '#FDE68A' }]}>
+                                    <Text style={[styles.badgeText, { color: '#B45309' }]}>
+                                        ⏰ Scheduled: {new Date(item.paper.scheduledStartTime).toLocaleDateString([], { month: 'short', day: 'numeric' })} {new Date(item.paper.scheduledStartTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                    </Text>
+                                </View>
+                            )}
+                        </View>
+                    )}
+
                     <Text style={styles.itemTitle} numberOfLines={2}>{item.title}</Text>
-                    {item.date && <Text style={styles.itemDate}>{item.date.split('T')[0]}</Text>}
+
+                    {item.date && (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2, marginBottom: 12 }}>
+                            <Icon name="calendar-blank-outline" size={13} color="#9CA3AF" style={{ marginRight: 4 }} />
+                            <Text style={[styles.itemDate, { marginBottom: 0 }]}>{item.date.split('T')[0]}</Text>
+                        </View>
+                    )}
 
                     <View style={styles.actionRow}>
-                        <TouchableOpacity
-                            onPress={() => {
-                                if (isDocumentType) {
-                                    const docUrl = item.link || item.url || item.file || item.fileName;
-                                    if (docUrl) {
-                                        let link = docUrl.startsWith('http') ? docUrl : `https://imacampus.online/api/storage/documents/${docUrl}`;
-                                        Linking.openURL(link).catch(err => onShowAlert({ title: "Error", msg: "Could not open document.", type: "error" }));
-                                    }
-                                } else onPlay(item);
-                            }}
-                            style={[styles.watchBtn, { flex: 1 }]}
-                        >
-                            <Text style={styles.watchBtnText}>{isDocumentType ? 'View Document' : 'Play Recoding'}</Text>
-                        </TouchableOpacity>
+                        {isTestType ? (
+                            <>
+                                <TouchableOpacity
+                                    onPress={() => onTakeExam && onTakeExam(item)}
+                                    style={[
+                                        styles.takeExamBtn,
+                                        { flex: 1 },
+                                        paperType === 'MCQ' ? { backgroundColor: '#059669' } :
+                                        paperType === 'STRUCTURED' ? { backgroundColor: '#7E22CE' } :
+                                        { backgroundColor: '#2563eb' }
+                                    ]}
+                                    activeOpacity={0.8}
+                                >
+                                    <Icon name="trophy-outline" size={18} color="#ffffff" style={{ marginRight: 6 }} />
+                                    <Text style={styles.takeExamBtnText}>
+                                        {paperType === 'STRUCTURED' ? 'Structured Paper' : 'Start Test / Rankings'}
+                                    </Text>
+                                </TouchableOpacity>
 
-                        {isDocumentType && (
+                                {item.fileName && (
+                                    <TouchableOpacity
+                                        onPress={() => handleDocDownload(item)}
+                                        style={[styles.docDownloadBtn, { backgroundColor: '#FEF2F2', borderColor: '#FECACA' }]}
+                                        activeOpacity={0.8}
+                                    >
+                                        <Icon name="file-pdf-box" size={16} color="#DC2626" />
+                                        <Text style={[styles.docDownloadText, { color: '#DC2626' }]}>PDF</Text>
+                                    </TouchableOpacity>
+                                )}
+                            </>
+                        ) : (
+                            <TouchableOpacity
+                                onPress={() => {
+                                    if (isDocumentType) {
+                                        const docUrl = item.link || item.url || item.file || item.fileName;
+                                        if (docUrl) {
+                                            let link = docUrl.startsWith('http') ? docUrl : `https://imacampus.online/api/storage/documents/${docUrl}`;
+                                            Linking.openURL(link).catch(err => onShowAlert({ title: "Error", msg: "Could not open document.", type: "error" }));
+                                        }
+                                    } else if (type === 'live' || item.contentType === 'live' || item.contentType === '1') {
+                                        // 🔥 FIX: Live Class links should open via Linking.openURL (Direct Zoom App) instead of in-app video player WebView!
+                                        const liveUrl = item.originalLink || item.link || item.url;
+                                        if (liveUrl) {
+                                            let link = liveUrl.trim();
+                                            if (!link.startsWith('http://') && !link.startsWith('https://')) link = 'https://' + link;
+                                            Linking.openURL(link).catch(err => onShowAlert({ title: "Error", msg: "Could not open live class link.", type: "error" }));
+                                        } else {
+                                            onShowAlert({ title: "Please Wait", msg: "Live class link is not available yet.", type: "warning" });
+                                        }
+                                    } else onPlay(item);
+                                }}
+                                style={[styles.watchBtn, { flex: 1 }, (type === 'live' || item.contentType === 'live' || item.contentType === '1') && { backgroundColor: '#B91C1C' }]}
+                            >
+                                <Text style={styles.watchBtnText}>
+                                    {isDocumentType ? 'View Document' : (type === 'live' || item.contentType === 'live' || item.contentType === '1') ? 'Join Live Class' : 'Play Recoding'}
+                                </Text>
+                            </TouchableOpacity>
+                        )}
+
+                        {!isTestType && isDocumentType && (
                             <TouchableOpacity onPress={() => handleDocDownload(item)} style={styles.docDownloadBtn}>
                                 <Icon name="download" size={16} color={COLORS.primary} />
                                 <Text style={styles.docDownloadText}>Save</Text>
@@ -235,7 +516,7 @@ const SectionedContentList = ({ tabKey, type, data, contentGroups, onPlay, onSho
                         )}
 
                         {/* 🔥 NEW: බට්න් එකේ පාට සහ අකුරු වෙනස් වෙන කෑල්ල 🔥 */}
-                        {canDownloadVideo && (
+                        {!isTestType && canDownloadVideo && (
                             <TouchableOpacity
                                 onPress={() => isDownloaded ? onShowAlert({ title: "Already Downloaded", msg: "You can find this video in My Downloads section.", type: "warning" }) : handleVideoDownload(item)}
                                 style={[
@@ -277,28 +558,31 @@ const SectionedContentList = ({ tabKey, type, data, contentGroups, onPlay, onSho
 
     return (
         <ScrollView style={styles.tabContent} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
-            {groupedItems.map(({ folder, items }) => (
-                <View key={`folder-${folder.id}`} style={styles.monthSection}>
-                    <TouchableOpacity
-                        style={[styles.monthHeader, { alignSelf: 'stretch', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10 }]}
-                        onPress={() => toggleFolder(folder.id)} activeOpacity={0.7}
-                    >
-                        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, paddingRight: 10 }}>
-                            <Icon name="folder-open" size={18} color="white" style={{ marginRight: 10 }} />
-                            <Text style={[styles.monthHeaderText, { fontSize: 14 }]} numberOfLines={1}>{folder.title || folder.name}</Text>
-                        </View>
-                        <Icon name={openFolders[folder.id] ? "chevron-up" : "chevron-down"} size={22} color="white" />
-                    </TouchableOpacity>
+            {groupedItems.map(({ folder, items }) => {
+                const isOpen = isFolderOpen(folder.id);
+                return (
+                    <View key={`folder-${folder.id}`} style={styles.monthSection}>
+                        <TouchableOpacity
+                            style={[styles.monthHeader, { alignSelf: 'stretch', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10 }]}
+                            onPress={() => toggleFolder(folder.id)} activeOpacity={0.7}
+                        >
+                            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, paddingRight: 10 }}>
+                                <Icon name="folder-open" size={18} color="white" style={{ marginRight: 10 }} />
+                                <Text style={[styles.monthHeaderText, { fontSize: 14 }]} numberOfLines={1}>{folder.title || folder.name}</Text>
+                            </View>
+                            <Icon name={isOpen ? "chevron-up" : "chevron-down"} size={22} color="white" />
+                        </TouchableOpacity>
 
-                    {openFolders[folder.id] && (
-                        <View style={{ paddingLeft: 10, marginTop: 5 }}>
-                            {items.length === 0 ? (
-                                <Text style={{ color: '#9CA3AF', fontSize: 12, fontStyle: 'italic', marginBottom: 15, paddingLeft: 10 }}>This folder is empty.</Text>
-                            ) : (items.map(item => renderItemCard(item)))}
-                        </View>
-                    )}
-                </View>
-            ))}
+                        {isOpen && (
+                            <View style={{ paddingLeft: 10, marginTop: 5 }}>
+                                {items.length === 0 ? (
+                                    <Text style={{ color: '#9CA3AF', fontSize: 12, fontStyle: 'italic', marginBottom: 15, paddingLeft: 10 }}>This folder is empty.</Text>
+                                ) : (items.map(item => renderItemCard(item)))}
+                            </View>
+                        )}
+                    </View>
+                );
+            })}
 
             {uncategorizedItems.length > 0 && (
                 <View style={styles.monthSection}>
@@ -327,7 +611,10 @@ const CourseContentScreen = ({ route, navigation }) => {
 
     const [alertVisible, setAlertVisible] = useState(false);
     const [alertConfig, setAlertConfig] = useState({ title: '', msg: '', type: 'success' });
-    const [activeTab, setActiveTab] = useState(route.params?.activeTab || 'recordings');
+    const initialTab = (route.params?.activeTab === 'papers' || route.params?.activeTab === 'sPapers')
+        ? 'testRanking'
+        : (route.params?.activeTab || 'recordings');
+    const [activeTab, setActiveTab] = useState(initialTab);
 
     const insets = useSafeAreaInsets();
     const { userInfo } = useContext(AuthContext);
@@ -403,7 +690,7 @@ const CourseContentScreen = ({ route, navigation }) => {
             <View style={styles.container}>
                 <StatusBar barStyle="light-content" backgroundColor="transparent" translucent={true} />
                 <LinearGradient colors={[COLORS.primary, '#9A0007']} start={{x: 0, y: 0}} end={{x: 1, y: 1}} style={[styles.redHeader, { paddingTop: insets.top + 15 }]}>
-        <Icon name="school" size={150} color="rgba(255,255,255,0.06)" style={{position: 'absolute', right: -30, top: -20, transform: [{rotate: '-15deg'}]}} />
+                    <Icon name="school" size={150} color="rgba(255,255,255,0.06)" style={{position: 'absolute', right: -30, top: -20, transform: [{rotate: '-15deg'}]}} />
                     <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}><Icon name="arrow-left" size={24} color="white" /></TouchableOpacity>
                     <Text style={styles.headerTitle} numberOfLines={1}>{courseTitle}</Text>
                 </LinearGradient>
@@ -425,7 +712,7 @@ const CourseContentScreen = ({ route, navigation }) => {
             <CustomAlert isVisible={alertVisible} title={alertConfig.title} message={alertConfig.msg} type={alertConfig.type} onClose={() => setAlertVisible(false)} />
 
             <LinearGradient colors={[COLORS.primary, '#9A0007']} start={{x: 0, y: 0}} end={{x: 1, y: 1}} style={[styles.redHeader, { paddingTop: insets.top + 15 }]}>
-        <Icon name="school" size={150} color="rgba(255,255,255,0.06)" style={{position: 'absolute', right: -30, top: -20, transform: [{rotate: '-15deg'}]}} />
+                <Icon name="school" size={150} color="rgba(255,255,255,0.06)" style={{position: 'absolute', right: -30, top: -20, transform: [{rotate: '-15deg'}]}} />
                 <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}><Icon name="arrow-left" size={24} color="white" /></TouchableOpacity>
                 <Text style={styles.headerTitle} numberOfLines={1}>{courseTitle}</Text>
             </LinearGradient>
@@ -443,15 +730,24 @@ const CourseContentScreen = ({ route, navigation }) => {
 
             <View style={{ flex: 1 }}>
                 {activeTab && (() => {
-                    const currentTabConfig = KNOWN_TABS.find(t => t.key === activeTab);
+                    const currentTabConfig = KNOWN_TABS.find(t => t.key === activeTab) || KNOWN_TABS[0];
+                    const tabData = activeTab === 'testRanking'
+                        ? (content?.rankingTests || [...(content?.sPapers || []), ...(content?.papers || [])])
+                        : (content ? content[activeTab] || [] : []);
                     return <SectionedContentList
                         tabKey={activeTab}
                         type={currentTabConfig.type}
-                        data={content[activeTab] || []}
-                        contentGroups={content.lessonGroups || content.contentGroups || []}
+                        data={tabData}
+                        contentGroups={content?.lessonGroups || content?.contentGroups || []}
                         onPlay={handlePlayVideo}
                         courseTitle={courseTitle}
                         onShowAlert={(config) => { setAlertConfig(config); setAlertVisible(true); }}
+                        onTakeExam={(item) => navigation.navigate('MCQPaper', {
+                            contentId: item.id,
+                            courseTitle: courseTitle,
+                            paperTitle: item.title,
+                            thumbnail: item.thumbnail
+                        })}
                     />;
                 })()}
             </View>
@@ -627,6 +923,8 @@ const styles = StyleSheet.create({
     itemTitle: { fontSize: 16, fontWeight: '900', color: '#1A1A1A', marginBottom: 6, lineHeight: 22 },
     itemDate: { fontSize: 12, color: '#9CA3AF', fontWeight: '700', marginBottom: 15 },
     actionRow: { flexDirection: 'row', gap: 10 },
+    takeExamBtn: { backgroundColor: '#059669', paddingVertical: 12, paddingHorizontal: 15, borderRadius: 12, flex: 1, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', elevation: 2 },
+    takeExamBtnText: { color: 'white', fontWeight: '900', fontSize: 13, textTransform: 'uppercase', letterSpacing: 0.5 },
     watchBtn: { backgroundColor: '#1A1A1A', paddingVertical: 12, paddingHorizontal: 15, borderRadius: 12, flex: 1, alignItems: 'center', justifyContent: 'center' },
     watchBtnText: { color: 'white', fontWeight: '800', fontSize: 12, textTransform: 'uppercase' },
     docDownloadBtn: { backgroundColor: '#FEF2F2', borderRadius: 12, paddingHorizontal: 15, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', borderWidth: 1, borderColor: '#FECACA' },
@@ -641,6 +939,8 @@ const styles = StyleSheet.create({
     messageBody: { fontSize: 14, color: '#6B7280', textAlign: 'center', lineHeight: 22, marginBottom: 30, fontWeight: '600' },
     goBackBtn: { backgroundColor: COLORS.primary, paddingHorizontal: 30, paddingVertical: 14, borderRadius: 15, elevation: 4 },
     goBackText: { color: 'white', fontWeight: '900', fontSize: 15 },
+    badge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, borderWidth: 1 },
+    badgeText: { fontSize: 10, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5 },
 });
 
 export default CourseContentScreen;

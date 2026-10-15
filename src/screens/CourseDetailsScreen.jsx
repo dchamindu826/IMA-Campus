@@ -1,6 +1,7 @@
-import React, { useState, useMemo, useEffect, useLayoutEffect } from 'react';
+import React, { useState, useMemo, useEffect, useLayoutEffect, useCallback } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Image, Modal, StatusBar, Platform, LayoutAnimation, UIManager, Dimensions } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import LinearGradient from 'react-native-linear-gradient';
 import COLORS from '../constants/colors';
@@ -13,6 +14,7 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 }
 
 const CourseDetailsScreen = ({ route, navigation }) => {
+    const insets = useSafeAreaInsets();
     const { businessData, autoSelect, selectedBatchId, selectedMonthGroupId, preSelectedSubjects, paymentPlan } = route.params;
 
     const isSpecialFlow = String(businessData?.category || '').toLowerCase() !== 'others';
@@ -42,17 +44,19 @@ const CourseDetailsScreen = ({ route, navigation }) => {
         navigation.setOptions({ headerShown: false });
     }, [navigation]);
 
-    useEffect(() => {
-        api.get('/student/my-enrolled-subjects').then(res => {
-            if (Array.isArray(res.data)) {
-                setEnrolledSubjects(res.data);
-            } else if (res.data && res.data.enrolledSubjects) {
-                setEnrolledSubjects(res.data.enrolledSubjects || []);
-                setGroupPaidSubjects(res.data.groupPaidSubjects || {});
-                setFullPaidSubjects(res.data.fullPaidSubjects || []);
-            }
-        }).catch(e => { });
-    }, []);
+    useFocusEffect(
+        useCallback(() => {
+            api.get('/student/my-enrolled-subjects').then(res => {
+                if (Array.isArray(res.data)) {
+                    setEnrolledSubjects(res.data);
+                } else if (res.data && res.data.enrolledSubjects) {
+                    setEnrolledSubjects(res.data.enrolledSubjects || []);
+                    setGroupPaidSubjects(res.data.groupPaidSubjects || {});
+                    setFullPaidSubjects(res.data.fullPaidSubjects || []);
+                }
+            }).catch(e => { });
+        }, [])
+    );
 
     useEffect(() => {
         if (selectedBatch?.id) {
@@ -125,7 +129,7 @@ const CourseDetailsScreen = ({ route, navigation }) => {
             const isPaidInGroup = (groupPaidSubjects[selectedMonthGroup?.id] || []).includes(c.id);
             const isFullyPaid = fullPaidSubjects.includes(c.id);
 
-            if (!seenNames.has(cleanName) && !isPaidInGroup && !isFullyPaid) {
+            if (!seenNames.has(cleanName)) {
                 seenNames.add(cleanName);
                 uniqueCourses.push(c);
             }
@@ -149,12 +153,29 @@ const CourseDetailsScreen = ({ route, navigation }) => {
             for (let rule of rules) { if (eligibleCount >= rule.courseCount) { activeRule = rule; break; } }
 
             setIsDiscountApplied(!!activeRule);
-            if (activeRule) setActiveDiscountPrice(activeRule.pricePerCourse); else setActiveDiscountPrice(null);
+            if (activeRule && activeRule.pricePerCourse != null && activeRule.pricePerCourse !== '') {
+                setActiveDiscountPrice(activeRule.pricePerCourse);
+            } else {
+                setActiveDiscountPrice(null);
+            }
 
-            filteredSubjects.filter(c => selectedSubjects.includes(c.id)).forEach(course => {
-                if (activeRule && !course.isDiscountExcluded) total += parseFloat(activeRule.pricePerCourse || 0);
-                else total += parseFloat(course.price || 0);
-            });
+            if (activeRule && activeRule.packagePrice != null && activeRule.packagePrice !== '') {
+                total = parseFloat(activeRule.packagePrice || 0);
+                filteredSubjects.filter(c => selectedSubjects.includes(c.id) && c.isDiscountExcluded).forEach(course => {
+                    total += parseFloat(course.price || 0);
+                });
+            } else {
+                filteredSubjects.filter(c => selectedSubjects.includes(c.id)).forEach(course => {
+                    if (activeRule && activeRule.pricePerCourse != null && activeRule.pricePerCourse !== '' && !course.isDiscountExcluded) {
+                        total += parseFloat(activeRule.pricePerCourse || 0);
+                    } else {
+                        total += parseFloat(course.price || 0);
+                    }
+                });
+                if (activeRule && activeRule.fixedDiscount && parseFloat(activeRule.fixedDiscount) > 0) {
+                    total = Math.max(0, total - parseFloat(activeRule.fixedDiscount));
+                }
+            }
             setTotalAmount(total);
         } catch (err) { }
     }, [selectedSubjects, filteredSubjects, selectedMonthGroup]);
@@ -299,10 +320,15 @@ const CourseDetailsScreen = ({ route, navigation }) => {
                     </View>
                 )}
 
-                {step === 3 && (
+                {step === 3 && (() => {
+                    const hasFullPayment = safeGroups.some(g => g.type == 2 || String(g.name).toLowerCase().includes('full'));
+                    const hasMonthlyPayment = safeGroups.some(g => g.type == 1);
+                    
+                    return (
                     <View style={styles.animateFade}>
                         <Text style={styles.label}>Payment Plan</Text>
                         
+                        {hasFullPayment && (
                         <TouchableOpacity activeOpacity={0.8} onPress={() => {
                             setSelectedPlan('full');
                             const fullGroups = safeGroups.filter(g => g.type == 2 || String(g.name).toLowerCase().includes('full'));
@@ -324,7 +350,9 @@ const CourseDetailsScreen = ({ route, navigation }) => {
                                 <Icon name="chevron-right" size={24} color="rgba(255,255,255,0.8)" />
                             </LinearGradient>
                         </TouchableOpacity>
+                        )}
 
+                        {hasMonthlyPayment && (
                         <TouchableOpacity activeOpacity={0.8} onPress={() => { setSelectedPlan('monthly'); changeStep(4); }}>
                             <LinearGradient colors={['#424242', '#212121']} start={{x:0, y:0}} end={{x:1, y:1}} style={styles.premiumCard}>
                                 <View style={styles.planIconWrapper}>
@@ -337,15 +365,23 @@ const CourseDetailsScreen = ({ route, navigation }) => {
                                 <Icon name="chevron-right" size={24} color="rgba(255,255,255,0.8)" />
                             </LinearGradient>
                         </TouchableOpacity>
+                        )}
 
+                        {hasFullPayment && (
                         <View style={styles.perksBox}>
                             <Text style={styles.perksTitle}>Why choose Full Payment?</Text>
                             <View style={styles.perkRow}><Icon name="check-decagram" size={20} color="#10B981" /><Text style={styles.perkText}>Exclusive Bundle Discounts</Text></View>
                             <View style={styles.perkRow}><Icon name="check-decagram" size={20} color="#10B981" /><Text style={styles.perkText}>No monthly interruptions</Text></View>
                             <View style={styles.perkRow}><Icon name="check-decagram" size={20} color="#10B981" /><Text style={styles.perkText}>Premium Study Materials & Offline Access</Text></View>
                         </View>
+                        )}
+                        
+                        {!hasFullPayment && !hasMonthlyPayment && (
+                            <Text style={styles.emptyText}>No payment plans configured for this business.</Text>
+                        )}
                     </View>
-                )}
+                    );
+                })()}
 
                 {step === 4 && (
                     <View style={styles.animateFade}>
@@ -471,7 +507,7 @@ const CourseDetailsScreen = ({ route, navigation }) => {
             </ScrollView>
 
             {step === 5 && (
-                <View style={styles.glassFooter}>
+                <View style={[styles.glassFooter, { paddingBottom: (Platform.OS === 'ios' ? 30 : 15) + insets.bottom }]}>
                     <View>
                         <Text style={styles.totalLabel}>TOTAL PAYABLE</Text>
                         <Text style={styles.totalText}>Rs. {totalAmount.toLocaleString()}</Text>
@@ -490,7 +526,7 @@ const CourseDetailsScreen = ({ route, navigation }) => {
 
             <Modal visible={showInstallmentModal} transparent={true} animationType="fade">
                 <View style={styles.modalOverlay}>
-                    <View style={styles.modalContent}>
+                    <View style={[styles.modalContent, { paddingBottom: (Platform.OS === 'ios' ? 40 : 25) + insets.bottom }]}>
                         <TouchableOpacity style={styles.closeModalBtn} onPress={() => setShowInstallmentModal(false)}><Icon name="close" size={20} color="#666" /></TouchableOpacity>
 
                         <View style={{ alignItems: 'center', marginBottom: 25, marginTop: 10 }}>
@@ -623,7 +659,7 @@ const styles = StyleSheet.create({
     alreadyPaidText: { color: '#059669', fontSize: 10, fontWeight: '900', letterSpacing: 0.5, marginLeft: 4 },
 
     // Footer
-    glassFooter: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 20, paddingBottom: Platform.OS === 'ios' ? 30 : 20, backgroundColor: 'rgba(255,255,255,0.95)', borderTopLeftRadius: 30, borderTopRightRadius: 30, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', elevation: 20, shadowColor: '#000', shadowOffset: { width: 0, height: -10 }, shadowOpacity: 0.1, shadowRadius: 15 },
+    glassFooter: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 20, backgroundColor: 'rgba(255,255,255,0.95)', borderTopLeftRadius: 30, borderTopRightRadius: 30, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', elevation: 20, shadowColor: '#000', shadowOffset: { width: 0, height: -10 }, shadowOpacity: 0.1, shadowRadius: 15 },
     totalLabel: { fontSize: 12, color: '#64748B', fontWeight: '900', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2 },
     totalText: { fontSize: 24, fontWeight: '900', color: '#0F172A' },
     payBtnGradient: { paddingVertical: 15, borderRadius: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', elevation: 6 },
@@ -631,7 +667,7 @@ const styles = StyleSheet.create({
 
     // Modal
     modalOverlay: { flex: 1, backgroundColor: 'rgba(15,23,42,0.7)', justifyContent: 'flex-end' },
-    modalContent: { backgroundColor: 'white', borderTopLeftRadius: 40, borderTopRightRadius: 40, padding: 25, paddingBottom: Platform.OS === 'ios' ? 40 : 25, elevation: 20 },
+    modalContent: { backgroundColor: 'white', borderTopLeftRadius: 40, borderTopRightRadius: 40, padding: 25, elevation: 20 },
     closeModalBtn: { position: 'absolute', top: 20, right: 20, width: 40, height: 40, backgroundColor: '#F1F5F9', borderRadius: 20, justifyContent: 'center', alignItems: 'center', zIndex: 10 },
     modalShieldIcon: { width: 80, height: 80, borderRadius: 40, backgroundColor: '#F0F9FF', justifyContent: 'center', alignItems: 'center', marginBottom: 15 },
     modalTitle: { fontSize: 24, fontWeight: '900', color: '#0F172A' },
